@@ -1,0 +1,15 @@
+{
+  "name": "starter-template",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Next.js + FastAPI + Supabase starter (local dev)",
+  "scripts": {
+    "setup": "cd frontend && npm install && cd ../backend && uv sync",
+    "dev": "concurrently -n web,api -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
+    "dev:web": "cd frontend && npm run dev",
+    "dev:api": "cd backend && uv run uvicorn app.main:app --reload --port 8000"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
