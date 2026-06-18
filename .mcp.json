@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "aurora-postgres": {
+      "command": "uvx",
+      "args": [
+        "awslabs.postgres-mcp-server@latest",
+        "--resource_arn", "<AURORA_CLUSTER_ARN>",
+        "--secret_arn", "<SECRETS_MANAGER_SECRET_ARN>",
+        "--database", "postgres",
+        "--region", "<AWS_REGION>",
+        "--readonly", "True"
+      ],
+      "env": {
+        "AWS_PROFILE": "<AWS_PROFILE>",
+        "AWS_REGION": "<AWS_REGION>"
+      }
+    }
+  }
+}

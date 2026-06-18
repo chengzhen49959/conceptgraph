@@ -1,38 +1,43 @@
-# Next.js + FastAPI + Supabase Starter
+# Next.js + FastAPI + AWS Starter
 
 Full-stack starter with authentication wired end to end.
 
 - **Frontend** — Next.js 16, Tailwind v4, shadcn/ui, lucide-react, Zustand
 - **Backend** — FastAPI (managed with [uv](https://docs.astral.sh/uv/))
-- **Auth + DB** — Supabase (hosted)
+- **Auth** — Amazon Cognito (via AWS Amplify)
+- **Database** — Amazon Aurora PostgreSQL (SQLAlchemy async + Alembic)
 
-The browser authenticates with Supabase directly. For data, it calls FastAPI with
-the Supabase access token, which FastAPI validates against Supabase per request.
+The browser authenticates with Cognito directly (Amplify). For data, it calls
+FastAPI with the Cognito **id token**, which FastAPI verifies locally against the
+User Pool's public keys (JWKS) — no per-request round-trip to AWS.
 
 ## Prerequisites
 
 - Node.js 20+
 - Python 3.12+ and [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
-- A [Supabase](https://supabase.com) account
+- An AWS account (Cognito User Pool + Aurora cluster)
 
 ## Setup
 
-1. **Create a Supabase project.** From **Settings → API**, copy the Project URL,
-   the **publishable** key (frontend), and the **secret** key (backend). Under
-   **Authentication → Providers → Email**, turn off "Confirm email" for instant
-   local sign-up.
+1. **Create a Cognito User Pool.** Add an **App client** with no client secret and
+   `ALLOW_USER_PASSWORD_AUTH` enabled. Use email as the sign-in alias. Note the
+   **User Pool ID**, **App client ID**, and region.
 
-2. **Configure env:**
+2. **Create an Aurora PostgreSQL cluster.** Grab a connection URL for the backend
+   (`postgresql+asyncpg://user:pass@host:5432/dbname`). For the Aurora MCP server
+   (below), enable the **RDS Data API** and store the DB credentials in a Secrets
+   Manager secret.
+
+3. **Configure env:**
 
    ```bash
-   cp frontend/.env.local.example frontend/.env.local
-   cp backend/.env.example backend/.env
+   cp frontend/.env.example frontend/.env.local         # Cognito pool + client ID
+   cp backend/.env.example backend/.env.local           # Cognito + DATABASE_URL
    ```
 
-   The publishable key is browser-safe. The secret key bypasses Row Level
-   Security — backend only, never commit it.
+   The Cognito IDs are browser-safe. `DATABASE_URL` is backend-only — never commit it.
 
-3. **Install and run:**
+4. **Install and run:**
 
    ```bash
    npm install && npm run setup
@@ -41,12 +46,28 @@ the Supabase access token, which FastAPI validates against Supabase per request.
 
    Frontend on http://localhost:3000, backend docs on http://127.0.0.1:8000/docs.
 
+5. **Database migrations** (when you add tables under `backend/app/models.py`):
+
+   ```bash
+   cd backend
+   uv run alembic revision --autogenerate -m "create users"
+   uv run alembic upgrade head
+   ```
+
+## Aurora MCP server
+
+`.mcp.json` wires the [`awslabs.postgres-mcp-server`](https://awslabs.github.io/mcp/servers/postgres-mcp-server)
+so Claude Code can query Aurora over the RDS Data API. Fill in the `<...>`
+placeholders (cluster ARN, secret ARN, region, AWS profile), then restart Claude
+Code and run `/mcp` to confirm `aurora-postgres` connects. Requires the AWS CLI
+configured with `rds-data` + `secretsmanager:GetSecretValue` permissions.
+
 ## Layout
 
 ```
-frontend/   Next.js — auth UI, dashboard, Supabase + API clients, shadcn/ui, store
-backend/    FastAPI — token validation, /api/health, /api/me
-supabase/   SQL migrations
+frontend/   Next.js — Cognito/Amplify auth UI, dashboard, API clients, shadcn/ui
+backend/    FastAPI — Cognito JWT verify, Aurora (SQLAlchemy), Alembic, /api/health, /api/me
+.mcp.json   Aurora Postgres MCP server (RDS Data API)
 ```
 
 ## Use as a template

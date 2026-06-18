@@ -1,8 +1,8 @@
 import { type NextRequest } from 'next/server'
-import { updateSession } from '@/lib/supabase/proxy'
+import { updateSession } from '@/lib/auth/proxy'
 
 // Next.js 16 "proxy" convention (formerly middleware). Runs on every matched
-// request to refresh the Supabase session and guard protected routes.
+// request to refresh the Cognito session and guard protected routes.
 export async function proxy(request: NextRequest) {
   return await updateSession(request)
 }

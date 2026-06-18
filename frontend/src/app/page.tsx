@@ -6,7 +6,7 @@ export default function Home() {
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-semibold tracking-tight">
-          Next.js + FastAPI + Supabase
+          Next.js + FastAPI + AWS
         </h1>
         <p className="text-muted-foreground">
           A minimal full-stack starter with authentication wired end to end.

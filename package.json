@@ -2,7 +2,7 @@
   "name": "starter-template",
   "private": true,
   "version": "0.1.0",
-  "description": "Next.js + FastAPI + Supabase starter (local dev)",
+  "description": "Next.js + FastAPI + AWS (Cognito + Aurora) starter (local dev)",
   "scripts": {
     "setup": "cd frontend && npm install && cd ../backend && uv sync",
     "dev": "concurrently -n web,api -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
