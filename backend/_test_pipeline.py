@@ -1,9 +1,9 @@
 """Throwaway: run the concept-extraction core on ONE local file — no DB/Redis/S3.
 
-parse -> chunk -> extract (the real, ported prompt) -> in-memory 3-band dedup that
-mirrors services/concepts.resolve_concept (exact-name fast path, cosine NN,
-auto-merge / LLM-judge / new bands, alias + merge_descriptions + re-embed on
-merge), using the REAL confirm_same_concept / merge_descriptions LLM calls.
+parse -> chunk -> extract (the real, ported prompt) -> in-memory dedup that mirrors
+services/concepts.resolve_concept: exact-name fast path, then embeddings BLOCK the
+top-k nearest candidates and the REAL match_concept LLM call decides the merge
+(alias + merge_descriptions + re-embed on merge).
 
 Writes a human-readable report + raw JSON next to the input file for inspection.
 Run:  uv run --directory backend python _test_pipeline.py [path-to-file.md]
@@ -18,9 +18,9 @@ from pathlib import Path
 import numpy as np
 
 from app.ai import (
-    confirm_same_concept,
     embed_texts,
     extract_concepts,
+    match_concept,
     merge_descriptions,
 )
 from app.config import get_settings
@@ -80,11 +80,11 @@ async def main() -> None:
                 seen.add(k)
                 ordered.append(c)
 
-    # --- in-memory 3-band dedup (mirror of resolve_concept) ------------------
+    # --- in-memory dedup: embeddings BLOCK top-k, LLM match_concept decides ---
     accepted: list[dict] = []         # canonical nodes
     by_name: dict[str, int] = {}      # lower(name|alias) -> accepted idx
     name_to_idx: dict[str, int] = {}  # incoming lower(name) -> accepted idx
-    st = {"new": 0, "exact": 0, "auto": 0, "judge_call": 0, "judge_merge": 0, "judge_split": 0}
+    st = {"new": 0, "exact": 0, "match_call": 0, "matched": 0, "none": 0}
 
     for c in ordered:
         k = c.name.strip().lower()
@@ -94,27 +94,30 @@ async def main() -> None:
             st["exact"] += 1
             continue
 
-        best_idx, best_sim = -1, -1.0
-        for i, a in enumerate(accepted):
-            sim = _cos(emb, a["emb"])
-            if sim > best_sim:
-                best_sim, best_idx = sim, i
-        dist = 1.0 - best_sim if best_idx >= 0 else 1.0
+        # Block: nearest accepted nodes within block_distance, capped at top-k.
+        scored = sorted(
+            ((_cos(emb, a["emb"]), i) for i, a in enumerate(accepted)),
+            key=lambda si: si[0], reverse=True,
+        )
+        cand = [(sim, i) for sim, i in scored if (1.0 - sim) <= s.block_distance][: s.block_top_k]
+        best_sim = scored[0][0] if scored else None
 
-        same, decided = False, "new"
-        if best_idx >= 0 and dist <= s.merge_distance_auto:
-            same, decided = True, "auto"
-            st["auto"] += 1
-        elif best_idx >= 0 and dist <= s.review_distance:
-            st["judge_call"] += 1
-            d = await confirm_same_concept(
-                c.name, c.description, accepted[best_idx]["name"], accepted[best_idx]["description"]
+        chosen, chosen_sim, reason = None, None, ""
+        if cand:
+            st["match_call"] += 1
+            res = await match_concept(
+                c.name, c.description,
+                [{"name": accepted[i]["name"], "description": accepted[i]["description"]} for _, i in cand],
             )
-            same, decided = d.same_concept, "judge"
-            st["judge_merge" if same else "judge_split"] += 1
+            reason = res.reason
+            if 0 <= res.match_index < len(cand):
+                chosen_sim, chosen = cand[res.match_index]
+                st["matched"] += 1
+            else:
+                st["none"] += 1
 
-        if same:
-            a = accepted[best_idx]
+        if chosen is not None:
+            a = accepted[chosen]
             if c.name.lower() not in {x.lower() for x in [a["name"], *a["aliases"]]}:
                 a["aliases"].append(c.name)
             if c.description and a["description"] and c.description != a["description"]:
@@ -123,15 +126,17 @@ async def main() -> None:
                     (await embed_texts([f"{a['name']}: {a['description']}"]))[0], dtype=np.float32
                 )
             a["mentions"] += 1
-            a["merges"].append({"name": c.name, "via": decided, "sim": round(best_sim, 4)})
-            by_name[c.name.lower()] = best_idx
-            name_to_idx[k] = best_idx
+            a["merges"].append({"name": c.name, "sim": round(chosen_sim, 4), "reason": reason})
+            by_name[c.name.lower()] = chosen
+            name_to_idx[k] = chosen
         else:
             idx = len(accepted)
             accepted.append({
                 "name": c.name, "description": c.description, "emb": emb,
-                "aliases": list(c.aliases), "mentions": 1, "decided_by": decided,
-                "nearest_sim": round(best_sim, 4) if best_idx >= 0 else None,
+                "aliases": list(c.aliases), "mentions": 1,
+                "decided_by": "judged-distinct" if cand else "new",
+                "nearest_sim": round(best_sim, 4) if best_sim is not None else None,
+                "match_reason": reason if cand else None,
                 "merges": [],
             })
             by_name[c.name.lower()] = idx
@@ -155,8 +160,8 @@ async def main() -> None:
 
     print(
         f"[dedup] {len(accepted)} final concepts  "
-        f"(new={st['new']} exact={st['exact']} auto={st['auto']} "
-        f"judge={st['judge_call']}->merge {st['judge_merge']}/split {st['judge_split']})"
+        f"(new={st['new']} exact={st['exact']} "
+        f"match_calls={st['match_call']}->merged {st['matched']}/distinct {st['none']})"
     )
     print(f"[relations] {len(rel_w)} after remap+dedup")
     print(f"[quality] glossary-leak descriptions: {len(leaks)}  sentence-punct names: {len(bad_names)}")
@@ -174,9 +179,9 @@ async def main() -> None:
     out_json.write_text(json.dumps({
         "input": str(INPUT),
         "settings": {
-            "extract_model": s.extract_model, "confirm_model": s.confirm_model,
+            "extract_model": s.extract_model, "judge_model": s.judge_model,
             "embed_model": s.embed_model,
-            "merge_distance_auto": s.merge_distance_auto, "review_distance": s.review_distance,
+            "block_distance": s.block_distance, "block_top_k": s.block_top_k,
         },
         "counts": {
             "chars": len(text), "chunks": len(chunks),
@@ -186,7 +191,8 @@ async def main() -> None:
         },
         "quality": {"glossary_leaks": leaks, "sentence_punct_names": bad_names},
         "concepts": [
-            {kk: a[kk] for kk in ("name", "description", "aliases", "mentions", "decided_by", "nearest_sim", "merges")}
+            {kk: a.get(kk) for kk in ("name", "description", "aliases", "mentions",
+                                      "decided_by", "nearest_sim", "match_reason", "merges")}
             for a in nodes
         ],
         "relations": relations,
@@ -201,13 +207,14 @@ async def main() -> None:
     L = []
     L.append(f"# Pipeline test — {INPUT.name}\n")
     L.append(f"- input: `{INPUT}`")
-    L.append(f"- models: extract=`{s.extract_model}` confirm=`{s.confirm_model}` embed=`{s.embed_model}`")
-    L.append(f"- dedup bands (cosine dist): auto <= {s.merge_distance_auto} · judge <= {s.review_distance}\n")
+    L.append(f"- models: extract=`{s.extract_model}` judge=`{s.judge_model}` embed=`{s.embed_model}`")
+    L.append(f"- dedup: embeddings block top-{s.block_top_k} within cosine dist {s.block_distance}, "
+             "LLM match_concept decides\n")
     L.append("## Counts")
     L.append(f"- {len(text)} chars -> {len(chunks)} chunks -> {raw_concepts} raw concepts "
              f"({len(ordered)} distinct names) -> **{len(accepted)} final concepts**")
-    L.append(f"- dedup: new={st['new']} · exact-name={st['exact']} · auto-merge={st['auto']} · "
-             f"judge calls={st['judge_call']} (merged {st['judge_merge']} / split {st['judge_split']})")
+    L.append(f"- dedup: new={st['new']} · exact-name={st['exact']} · "
+             f"match calls={st['match_call']} (merged {st['matched']} / judged-distinct {st['none']})")
     L.append(f"- relations: {raw_relations} raw -> **{len(relations)} after remap+dedup**\n")
     L.append("## Quality")
     L.append(f"- glossary-leak descriptions (reference 本文/作者/...): **{len(leaks)}**"
@@ -218,7 +225,7 @@ async def main() -> None:
     for a in nodes:
         al = f"  · aliases: {', '.join(a['aliases'])}" if a["aliases"] else ""
         if a["merges"]:
-            mg = "  · merged: " + ", ".join(f"{m['name']}({m['via']})" for m in a["merges"])
+            mg = "  · merged: " + ", ".join(m["name"] for m in a["merges"])
         else:
             mg = ""
         L.append(f"### {a['name']}  x{a['mentions']} [{a['decided_by']}]{al}")

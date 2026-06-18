@@ -13,7 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.ai import confirm_same_concept, embed_text, merge_descriptions
+from app.ai import embed_text, match_concept, merge_descriptions
 from app.config import get_settings
 from app.models import Concept, ConceptAlias, ConceptMention, Edge
 
@@ -56,9 +56,13 @@ async def resolve_concept(
         cache[key] = existing_id
         return existing_id
 
-    # Vector nearest neighbour within the workspace (HNSW + cosine distance).
+    # Vector nearest neighbours within the workspace (HNSW + cosine distance).
+    # Embeddings only BLOCK here — they recall candidates; the merge decision is
+    # the LLM's (match_concept). Pure cosine-threshold merging is low-precision and
+    # false-merges siblings/opposites (e.g. top-down vs bottom-up).
+    settings = get_settings()
     async with sessionmaker() as session:
-        nn = (
+        rows = (
             await session.execute(
                 select(
                     Concept.id,
@@ -68,30 +72,26 @@ async def resolve_concept(
                 )
                 .where(Concept.workspace_id == workspace_id)
                 .order_by(Concept.embedding.cosine_distance(embedding))
-                .limit(1)
+                .limit(settings.block_top_k)
             )
-        ).first()
+        ).all()
 
-    if nn is not None and nn.dist is not None:
-        settings = get_settings()
-        # Three-band decision on cosine distance: a high-similarity hit merges
-        # with no LLM call; the ambiguous middle band asks the judge; far apart
-        # is a new concept.
-        if nn.dist <= settings.merge_distance_auto:
-            same = True
-        elif nn.dist <= settings.review_distance:
-            # LLM confirmation — deliberately OUTSIDE any open session.
-            decision = await confirm_same_concept(name, description, nn.name, nn.description)
-            same = decision.same_concept
-        else:
-            same = False
-
-        if same:
-            # Merge into the existing node: keep the incoming surface form as an
+    candidates = [r for r in rows if r.dist is not None and r.dist <= settings.block_distance]
+    if candidates:
+        # LLM multiple-choice canonicalization — deliberately OUTSIDE any open
+        # session. Returns the chosen candidate's index, or -1 for "none → new".
+        match = await match_concept(
+            name,
+            description,
+            [{"name": c.name, "description": c.description} for c in candidates],
+        )
+        if 0 <= match.match_index < len(candidates):
+            nn = candidates[match.match_index]
+            # Merge into the chosen node: keep the incoming surface form as an
             # alias, fold the new wording into one canonical glossary description,
             # and re-embed only when that text actually changed so the stored
-            # vector always matches the stored description. Both the merge LLM and
-            # the embedding call run BEFORE any session is opened.
+            # vector always matches the stored description. The merge LLM and the
+            # embedding call both run BEFORE any session is opened.
             merged = nn.description
             if description and nn.description and description != nn.description:
                 merged = await merge_descriptions(nn.name, nn.description, description)

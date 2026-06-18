@@ -49,15 +49,16 @@ class Settings(BaseSettings):
     # NOTE: the embedding dimension is a DDL-fixed constant (the vector column
     # width), not a runtime setting — see EMBED_DIM in app/models.py.
     #
-    # Three-band concept dedup, expressed in cosine DISTANCE (= 1 - similarity)
-    # to match the `cosine_distance` query in services/concepts.py:
-    #   dist <= merge_distance_auto                   -> same concept, merge, no LLM
-    #   merge_distance_auto < dist <= review_distance -> ask the LLM judge to decide
-    #   dist > review_distance                        -> a new concept
-    # Tune merge_distance_auto down if false auto-merges; review_distance up to
-    # send more borderline pairs to the judge.
-    merge_distance_auto: float = 0.12  # similarity >= 0.88
-    review_distance: float = 0.40  # similarity >= 0.60
+    # Concept dedup uses embeddings only as a BLOCKER (to recall candidates); the
+    # MERGE decision is the LLM's (ai.match_concept). Pure cosine-threshold merging
+    # is low-precision and false-merges siblings/opposites (e.g. top-down vs
+    # bottom-up). Cosine DISTANCE (= 1 - similarity) matches the `cosine_distance`
+    # query in services/concepts.py.
+    block_distance: float = 0.40  # only neighbours with sim >= 0.60 become candidates
+    block_top_k: int = 5  # how many nearest candidates to send to the LLM judge
+    # The merge judge must tell apart siblings/opposites, which nano confuses, so
+    # it uses the stronger mini rather than confirm_model.
+    judge_model: str = "gpt-5.4-mini"
 
 
 @lru_cache

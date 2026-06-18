@@ -94,3 +94,50 @@ async def merge_descriptions(name: str, current: str, incoming: str) -> str:
         )
     parsed = resp.output_parsed
     return parsed.description if parsed else current
+
+
+class MatchResult(BaseModel):
+    match_index: int  # 0-based index of the matching candidate, or -1 for none
+    reason: str
+
+
+_MATCH_INSTRUCTIONS = """You canonicalize concepts in a knowledge base. Given one
+INCOMING concept and a numbered list of EXISTING candidate concepts already in the
+base, pick the ONE candidate that denotes the SAME concept, or -1 if none does.
+
+Same concept (return its index): synonyms, acronym vs spelled-out form,
+translations, or rewordings of one idea — a reader would keep a single entry.
+Different (return -1): merely related or sibling concepts — a general technique vs
+a specific variant, a method vs a component it uses, a problem vs its solution, and
+especially OPPOSITES / contrasting pairs (e.g. top-down vs bottom-up, 自上而下 vs
+自下而上). When unsure, return -1.
+
+Judge by what the concepts DENOTE, not by how similar their wording is. Give one
+short reason."""
+
+
+async def match_concept(
+    name: str, description: str | None, candidates: list[dict]
+) -> MatchResult:
+    """Pick which existing candidate (if any) is the same concept as the incoming
+    one. Embeddings only block to produce `candidates`; this LLM call is the merge
+    decision. Refusal / no parse / out-of-range index → no match (safe: a new node,
+    never a wrong merge)."""
+    client = get_client()
+    settings = get_settings()
+    lines = [
+        f"INCOMING concept:\n  name: {name}\n  description: {description or '(none)'}\n",
+        "EXISTING candidates:",
+    ]
+    for i, c in enumerate(candidates):
+        lines.append(f"  [{i}] {c['name']}: {c.get('description') or '(none)'}")
+    lines.append("\nReturn match_index = the index of the SAME concept, or -1 if none.")
+    async with LLM_SEMAPHORE:
+        resp = await client.responses.parse(
+            model=settings.judge_model,
+            instructions=_MATCH_INSTRUCTIONS,
+            input="\n".join(lines),
+            text_format=MatchResult,
+            reasoning={"effort": "low"},
+        )
+    return resp.output_parsed or MatchResult(match_index=-1, reason="no decision returned")
