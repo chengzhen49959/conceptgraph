@@ -1,22 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { usePanelRef } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import {
   type DocumentOut,
   type GraphData,
   contentTypeFor,
   createDocument,
+  deleteClusters,
+  deleteDocuments,
   getGraph,
   isProcessing,
   listDocuments,
   uploadToS3,
 } from '@/lib/api'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
 import { AppTopbar } from './AppTopbar'
-import { Sidebar } from './Sidebar'
+import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
 import { ConceptPanel } from './ConceptDetail'
 import { SearchPalette } from './SearchPalette'
+import { StatusBar } from './StatusBar'
 
 const EMPTY: GraphData = { nodes: [], links: [], clusters: [] }
 
@@ -27,6 +36,42 @@ export function WorkspaceView({ email }: { email: string | null }) {
   const [busy, setBusy] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // Imperative handle on the left panel so the topbar button can collapse it.
+  const leftRef = usePanelRef()
+  const toggleLeft = useCallback(() => {
+    const p = leftRef.current
+    if (!p) return
+    if (p.isCollapsed()) p.expand()
+    else p.collapse()
+  }, [leftRef])
+
+  // Cluster drill-in: null = overview (every cluster collapses to one super-node);
+  // an id = focus that cluster, showing only its concepts and the edges between
+  // them. Clicking the focused cluster again — or the canvas background / back
+  // chip — returns to the overview.
+  const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null)
+  const onFocusCluster = useCallback(
+    (id: string | null) => setFocusedClusterId((prev) => (prev === id ? null : id)),
+    [],
+  )
+
+  // Sidebar→canvas highlight: hovering a topic row lights all its concepts,
+  // hovering a concept row lights it + neighbours. At most one is set at a time.
+  const [hoverTopicId, setHoverTopicId] = useState<string | null>(null)
+  const [hoverConceptId, setHoverConceptId] = useState<string | null>(null)
+
+  // A deleted cluster can leave focusedClusterId dangling. Rather than write state
+  // from an effect, derive the effective focus: a focus on a cluster no longer in
+  // the graph reads as "no focus" (back to the overview). Same self-healing shape
+  // as selectedNode below.
+  const effectiveFocusedClusterId = useMemo(
+    () =>
+      focusedClusterId && graph.clusters.some((c) => c.id === focusedClusterId)
+        ? focusedClusterId
+        : null,
+    [focusedClusterId, graph.clusters],
+  )
 
   const refreshDocs = useCallback(async () => {
     try {
@@ -103,6 +148,44 @@ export function WorkspaceView({ email }: { email: string | null }) {
     [refreshDocs],
   )
 
+  // Delete handlers live here because the domain state (docs, graph) and its
+  // refetchers do. Children just hand back the ids to remove. A deleted concept
+  // collapses the detail panel on its own (selectedNode resolves to null), and a
+  // deleted focused cluster is reconciled by the effect above.
+  const handleDeleteDocuments = useCallback(
+    async (ids: string[]) => {
+      try {
+        const r = await deleteDocuments(ids)
+        await Promise.all([refreshDocs(), refreshGraph()])
+        const n = ids.length
+        toast.success(
+          `Deleted ${n} document${n > 1 ? 's' : ''}` +
+            (r.deleted_concepts ? ` and ${r.deleted_concepts} orphaned concept(s)` : ''),
+        )
+      } catch (e) {
+        toast.error((e as Error).message)
+      }
+    },
+    [refreshDocs, refreshGraph],
+  )
+
+  const handleDeleteClusters = useCallback(
+    async (ids: string[]) => {
+      try {
+        const r = await deleteClusters(ids)
+        await refreshGraph() // clusters/concepts are graph-only; docs are untouched
+        const n = ids.length
+        toast.success(
+          `Deleted ${n} topic${n > 1 ? 's' : ''}` +
+            (r.deleted_concepts ? ` and ${r.deleted_concepts} concept(s)` : ''),
+        )
+      } catch (e) {
+        toast.error((e as Error).message)
+      }
+    },
+    [refreshGraph],
+  )
+
   const selectedNode = useMemo(
     () => graph.nodes.find((n) => n.id === selectedId) ?? null,
     [graph.nodes, selectedId],
@@ -114,35 +197,78 @@ export function WorkspaceView({ email }: { email: string | null }) {
         email={email}
         workspaceName="Personal"
         onOpenSearch={() => setSearchOpen(true)}
+        onToggleSidebar={toggleLeft}
       />
 
-      <div className="flex min-h-0 flex-1">
-        <Sidebar
-          documents={docs}
-          onPickFile={handleFile}
-          busy={busy}
-          loading={loadingDocs}
-        />
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        <ResizablePanel
+          id="left"
+          panelRef={leftRef}
+          defaultSize="260px"
+          minSize="200px"
+          maxSize="420px"
+          collapsible
+          collapsedSize="0px"
+          groupResizeBehavior="preserve-pixel-size"
+          className="min-w-0"
+        >
+          <NavSidebar
+            documents={docs}
+            graph={graph}
+            onPickFile={handleFile}
+            busy={busy}
+            loading={loadingDocs}
+            workspaceName="Personal"
+            onOpenSearch={() => setSearchOpen(true)}
+            focusedClusterId={effectiveFocusedClusterId}
+            onFocusCluster={onFocusCluster}
+            onSelectConcept={setSelectedId}
+            onHoverTopic={setHoverTopicId}
+            onHoverConcept={setHoverConceptId}
+            onDeleteDocuments={handleDeleteDocuments}
+            onDeleteClusters={handleDeleteClusters}
+          />
+        </ResizablePanel>
 
-        <main className="min-w-0 flex-1 bg-muted/30 p-3">
-          <div className="h-full w-full overflow-hidden rounded-lg border shadow-sm">
+        <ResizableHandle withHandle />
+
+        <ResizablePanel id="center" className="min-w-0">
+          <main className="h-full min-w-0">
             <GraphCanvas
               data={graph}
               selectedId={selectedId}
               onSelectId={setSelectedId}
+              focusedClusterId={effectiveFocusedClusterId}
+              onFocusCluster={onFocusCluster}
+              highlightClusterId={hoverTopicId}
+              highlightConceptId={hoverConceptId}
             />
-          </div>
-        </main>
+          </main>
+        </ResizablePanel>
 
         {selectedNode && (
-          <ConceptPanel
-            node={selectedNode}
-            graph={graph}
-            onClose={() => setSelectedId(null)}
-            onNavigate={setSelectedId}
-          />
+          <>
+            <ResizableHandle withHandle />
+            <ResizablePanel
+              id="right"
+              defaultSize="320px"
+              minSize="260px"
+              maxSize="480px"
+              groupResizeBehavior="preserve-pixel-size"
+              className="min-w-0"
+            >
+              <ConceptPanel
+                node={selectedNode}
+                graph={graph}
+                onClose={() => setSelectedId(null)}
+                onNavigate={setSelectedId}
+              />
+            </ResizablePanel>
+          </>
         )}
-      </div>
+      </ResizablePanelGroup>
+
+      <StatusBar graph={graph} documents={docs} />
 
       <SearchPalette
         open={searchOpen}

@@ -82,7 +82,7 @@ export function ConceptPanel({
   }, [graph, node.id])
 
   return (
-    <div className="flex h-full w-80 shrink-0 flex-col border-l bg-background">
+    <div className="flex h-full w-full flex-col bg-background">
       <div className="flex items-start justify-between gap-2 border-b p-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold">{node.name}</h2>

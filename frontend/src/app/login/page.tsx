@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import {
   signIn,
+  signOut,
   confirmSignUp,
   resendSignUpCode,
 } from 'aws-amplify/auth'
@@ -20,8 +20,23 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
+// Amplify throws UserAlreadyAuthenticatedException when a (possibly stale) session
+// already exists — e.g. landing on /login while still signed in. Clear it and
+// retry so the credentials just entered win (this also lets a user switch
+// accounts straight from the login form instead of dead-ending on the error).
+async function signInClean(username: string, password: string) {
+  try {
+    return await signIn({ username, password })
+  } catch (err) {
+    if ((err as Error).name === 'UserAlreadyAuthenticatedException') {
+      await signOut()
+      return await signIn({ username, password })
+    }
+    throw err
+  }
+}
+
 export default function LoginPage() {
-  const router = useRouter()
   // A login attempt by an unconfirmed user drops into the 'confirm' step so the
   // code can be entered here, rather than dead-ending on an error.
   const [step, setStep] = useState<'login' | 'confirm'>('login')
@@ -32,9 +47,12 @@ export default function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  async function goDashboard() {
-    router.push('/dashboard')
-    router.refresh()
+  function goDashboard() {
+    // Full-document navigation (not router.push) so the browser sends the
+    // freshly-set Cognito auth cookies and the server gate re-evaluates with the
+    // new session. A client RSC navigation can race the cookie write and bounce
+    // straight back to /login — which looks like "login did nothing".
+    window.location.assign('/dashboard')
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -43,7 +61,7 @@ export default function LoginPage() {
     setNotice(null)
     setLoading(true)
     try {
-      const { isSignedIn, nextStep } = await signIn({ username: email, password })
+      const { isSignedIn, nextStep } = await signInClean(email, password)
       if (isSignedIn) {
         await goDashboard()
       } else if (nextStep.signInStep === 'CONFIRM_SIGN_UP') {
@@ -76,7 +94,7 @@ export default function LoginPage() {
     try {
       await confirmSignUp({ username: email, confirmationCode: code })
       // Account is verified now — sign in with the password from the form.
-      const { isSignedIn } = await signIn({ username: email, password })
+      const { isSignedIn } = await signInClean(email, password)
       if (isSignedIn) await goDashboard()
       else setStep('login')
     } catch (err) {

@@ -28,3 +28,4 @@ backend/.venv/
 .idea/
 .vscode/
 *.log
+.gstack/

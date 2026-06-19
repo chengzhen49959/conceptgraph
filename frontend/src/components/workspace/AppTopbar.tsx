@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { signOut } from 'aws-amplify/auth'
-import { ChevronDown, LogOut, Network, Search } from 'lucide-react'
+import { ChevronDown, LogOut, Network, PanelLeft, Search } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,10 +16,12 @@ export function AppTopbar({
   email,
   workspaceName,
   onOpenSearch,
+  onToggleSidebar,
 }: {
   email: string | null
   workspaceName: string
   onOpenSearch: () => void
+  onToggleSidebar?: () => void
 }) {
   const router = useRouter()
 
@@ -34,6 +36,16 @@ export function AppTopbar({
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-4">
       <div className="flex items-center gap-2.5">
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
+            className="-ml-1 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeft className="size-4" />
+          </button>
+        )}
         <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-background">
           <Network className="size-4" />
         </div>

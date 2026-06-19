@@ -1,25 +1,14 @@
-import { fetchAuthSession } from 'aws-amplify/auth/server'
 import { NextResponse, type NextRequest } from 'next/server'
-import { runWithAmplifyServerContext } from './server'
+import { pickIdToken } from './cookie-session'
 
 // Routes a logged-out visitor may see. Everything else redirects to /login.
 const PUBLIC_PATHS = ['/', '/login', '/signup']
 
-export async function updateSession(request: NextRequest) {
-  // The adapter refreshes the Cognito token cookies onto this response.
-  const response = NextResponse.next({ request })
-
-  const signedIn = await runWithAmplifyServerContext({
-    nextServerContext: { request, response },
-    async operation(contextSpec) {
-      try {
-        const session = await fetchAuthSession(contextSpec)
-        return Boolean(session.tokens)
-      } catch {
-        return false
-      }
-    },
-  })
+// Cheap routing gate: is an id-token cookie present? Token validity (signature,
+// expiry) is enforced by the backend on every API call and re-checked by
+// `getServerUser` before a protected page renders — see `./cookie-session`.
+export function updateSession(request: NextRequest) {
+  const signedIn = pickIdToken(request.cookies.getAll()) !== undefined
 
   const { pathname } = request.nextUrl
   const isPublic = PUBLIC_PATHS.some(
@@ -32,6 +21,5 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Return the response unchanged so refreshed cookies reach the browser.
-  return response
+  return NextResponse.next({ request })
 }

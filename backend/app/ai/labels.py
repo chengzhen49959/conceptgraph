@@ -11,8 +11,13 @@ class ClusterLabel(BaseModel):
 
 
 _INSTRUCTIONS = """Given concept names that form one topic cluster, return a
-short human-readable label (2-4 words, Title Case, no punctuation) naming the
-shared topic."""
+short human-readable label (2-4 words) that names the shared topic.
+
+Write the label in the SAME language as the concept names; never translate.
+Use Title Case only for Latin-script languages (e.g. English); for languages
+without letter case (e.g. Chinese, Japanese), write the natural term as-is.
+Name the shared topic — do not just concatenate two of the concept names.
+No surrounding quotes and no trailing punctuation."""
 
 _MAX_NAMES = 40  # enough signal to label; keeps the prompt small
 

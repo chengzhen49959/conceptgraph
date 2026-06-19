@@ -144,3 +144,28 @@ export type ConceptDetail = {
 export function getConcept(id: string) {
   return apiClient<ConceptDetail>(`/api/concepts/${id}`)
 }
+
+// --- Deletes ---------------------------------------------------------------
+
+/** Counts returned by a batch delete (fields present depend on the endpoint). */
+export type DeleteSummary = {
+  deleted_documents?: number
+  deleted_clusters?: number
+  deleted_concepts: number
+}
+
+/** Delete documents and GC concepts only they supported. `ids` may be a single id. */
+export function deleteDocuments(ids: string[], workspaceId?: string) {
+  return apiClient<DeleteSummary>('/api/documents/delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids, workspace_id: workspaceId }),
+  })
+}
+
+/** Delete clusters and every concept they contained. `ids` may be a single id. */
+export function deleteClusters(ids: string[], workspaceId?: string) {
+  return apiClient<DeleteSummary>('/api/clusters/delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids, workspace_id: workspaceId }),
+  })
+}

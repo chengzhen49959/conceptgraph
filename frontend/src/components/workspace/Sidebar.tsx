@@ -47,7 +47,7 @@ export function Sidebar({
   loading: boolean
 }) {
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-background">
+    <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="border-b p-3">
         <label
           className={cn(

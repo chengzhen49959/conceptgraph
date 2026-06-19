@@ -68,6 +68,7 @@ self-contained, written like a glossary entry, with no reference to any specific
 source or document.
 
 Rules:
+- Write in the SAME language as the input descriptions; never translate.
 - If the new description adds material information (a mechanism, purpose,
   distinction, or precision the current one lacks), integrate it.
 - If it adds nothing material, return the current description verbatim.

@@ -10,13 +10,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
-from app.models import Document
-from app.services.storage import presign_put_url
+from app.models import Cluster, Concept, ConceptMention, Document
+from app.services.storage import delete_objects, presign_put_url
 from app.services.workspaces import ensure_personal_workspace, require_workspace
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -44,6 +44,16 @@ class DocumentOut(BaseModel):
     source_type: str
     status: str
     error: str | None
+
+
+class DeleteDocumentsRequest(BaseModel):
+    ids: list[uuid.UUID]
+    workspace_id: uuid.UUID | None = None  # defaults to the caller's personal workspace
+
+
+class DeleteDocumentsResponse(BaseModel):
+    deleted_documents: int
+    deleted_concepts: int  # orphans garbage-collected as a side effect
 
 
 def _source_type(filename: str, content_type: str) -> str:
@@ -132,3 +142,77 @@ async def list_documents(
         )
     ).scalars().all()
     return list(rows)
+
+
+@router.post("/delete", response_model=DeleteDocumentsResponse)
+async def delete_documents(
+    body: DeleteDocumentsRequest,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> DeleteDocumentsResponse:
+    """Delete documents and garbage-collect anything only they supported.
+
+    Deleting a document cascades its chunks and mentions away (FK ON DELETE
+    CASCADE). Concepts are workspace-scoped, so one that was mentioned *only* by
+    the deleted documents would otherwise linger as a 0-mention ghost node — we
+    sweep those out (their edges and aliases cascade in turn), then drop any
+    cluster left with no concepts. Concepts still cited by other documents stay.
+
+    Workspace ownership is enforced by the WHERE clause, and missing ids are
+    simply skipped, so deleting the same id twice is a no-op success.
+    """
+    if body.workspace_id is None:
+        workspace = await ensure_personal_workspace(session, user.id)
+    else:
+        workspace = await require_workspace(session, user.id, body.workspace_id)
+
+    if not body.ids:
+        return DeleteDocumentsResponse(deleted_documents=0, deleted_concepts=0)
+
+    # Capture S3 keys before the rows vanish, for best-effort cleanup post-commit.
+    s3_keys = (
+        await session.execute(
+            select(Document.s3_key).where(
+                Document.workspace_id == workspace.id,
+                Document.id.in_(body.ids),
+            )
+        )
+    ).scalars().all()
+
+    # 1. Documents → cascade removes their chunks and concept_mentions.
+    doc_result = await session.execute(
+        delete(Document).where(
+            Document.workspace_id == workspace.id,
+            Document.id.in_(body.ids),
+        )
+    )
+
+    # 2. Orphan concepts: none mentioned anywhere → cascade removes edges/aliases.
+    has_mention = (
+        select(ConceptMention.concept_id)
+        .where(ConceptMention.concept_id == Concept.id)
+        .exists()
+    )
+    concept_result = await session.execute(
+        delete(Concept).where(
+            Concept.workspace_id == workspace.id,
+            ~has_mention,
+        )
+    )
+
+    # 3. Clusters left with no concepts after the sweep.
+    has_concept = select(Concept.id).where(Concept.cluster_id == Cluster.id).exists()
+    await session.execute(
+        delete(Cluster).where(
+            Cluster.workspace_id == workspace.id,
+            ~has_concept,
+        )
+    )
+
+    await session.commit()
+    await delete_objects(list(s3_keys))
+
+    return DeleteDocumentsResponse(
+        deleted_documents=doc_result.rowcount or 0,
+        deleted_concepts=concept_result.rowcount or 0,
+    )

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import get_engine
-from app.routers import concepts, documents, graph, health, me, workspaces
+from app.routers import clusters, concepts, documents, graph, health, me, workspaces
 
 
 @asynccontextmanager
@@ -60,3 +60,4 @@ app.include_router(workspaces.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
 app.include_router(concepts.router)
+app.include_router(clusters.router)
