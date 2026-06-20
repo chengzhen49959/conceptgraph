@@ -24,6 +24,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -48,8 +49,22 @@ class Workspace(Base):
     id: Mapped[uuid.UUID] = _pk()
     owner_id: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
     type: Mapped[str] = mapped_column(String, nullable=False, default="private")  # private | shared
+    # Project title shown on the dashboard. Nullable so the migration is
+    # backfill-free; the API defaults a display name ("Personal" for the private
+    # workspace, "Untitled project" for an unnamed shared one).
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Notion-style project icon: an IconPark icon name (e.g. "Microscope") and an
+    # accent hex colour (e.g. "#2F88FF"). Both nullable — a workspace without one
+    # renders a default icon. Purely presentational; no access-control meaning.
+    icon: Mapped[str | None] = mapped_column(String, nullable=True)
+    icon_color: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    # Bumped on every graph edit / annotation / ingest — drives "last activity"
+    # on the dashboard. Nullable: falls back to created_at when never touched.
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     __table_args__ = (
@@ -71,7 +86,44 @@ class WorkspaceMember(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
     )
     user_id: Mapped[str] = mapped_column(String, primary_key=True)  # Cognito sub
-    role: Mapped[str] = mapped_column(String, nullable=False, default="owner")  # owner | member
+    # owner (the student who owns the project) | mentor (advisor: edit + annotate)
+    # | member (read + comment). Free-form string so widening the vocabulary is a
+    # convention change, not a migration.
+    role: Mapped[str] = mapped_column(String, nullable=False, default="owner")
+
+
+class WorkspaceInvite(Base):
+    __tablename__ = "workspace_invites"
+
+    # Invite-before-account: there is no users table, so we can't resolve an email
+    # to a Cognito sub at invite time. We key the invite by email and bind the
+    # accepter's sub only when they log in and POST /accept (their id token then
+    # carries the email). One live (pending) invite per email per workspace is
+    # enforced by a partial unique index created in the migration.
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)  # role granted on accept
+    token: Mapped[str] = mapped_column(String, nullable=False)  # URL-safe secret
+    invited_by: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
+    # pending → accepted | revoked
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    accepted_by: Mapped[str | None] = mapped_column(String, nullable=True)  # Cognito sub
+
+    __table_args__ = (
+        # ix on workspace_id for the members/invites panel; the unique token index
+        # and the partial "one pending invite per (workspace, lower(email))" index
+        # are created in the migration (op.execute) — functional/partial DDL.
+        Index("ix_workspace_invites_workspace", "workspace_id"),
+    )
 
 
 class Document(Base):
@@ -134,6 +186,15 @@ class Concept(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     canonical: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    # How this node entered the graph: 'extracted' (pipeline) or 'manual' (a
+    # hand-authored research-direction node — research question / hypothesis /
+    # next step). Manual nodes carry no embedding, so they never become a merge
+    # candidate, but an exact-name insert still folds into them. server_default
+    # backfills existing rows and covers the worker's core INSERTs (which don't
+    # set origin).
+    origin: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'extracted'")
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIM), nullable=True)
     cluster_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -208,4 +269,90 @@ class Edge(Base):
         ),
         Index("ix_edges_workspace", "workspace_id"),
         Index("ix_edges_endpoints", "source_concept_id", "target_concept_id"),
+    )
+
+
+class GraphAudit(Base):
+    __tablename__ = "graph_audit"
+
+    # Change history for HUMAN graph edits (concepts/edges) — the "what did my
+    # collaborator change" feed that powers async mentor review + undo. The
+    # pipeline's own writes are NOT audited (they'd flood the log). `before`/
+    # `after` are full field snapshots, enough to replay the inverse for undo.
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
+    actor_role: Mapped[str] = mapped_column(String, nullable=False)  # role at edit time
+    # concept.create | concept.update | concept.delete | edge.create | edge.update | edge.delete
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)  # concept | edge
+    # The affected row's id. NOT a FK: on delete the row is gone but the audit
+    # record (and its `before` snapshot) must survive for review + undo.
+    entity_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    before: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    after: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # user | mentor | pipeline — lets the feed distinguish a mentor's edits.
+    source: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'user'")
+    )
+    # Set when a later entry reverts this one (points at the undo's audit id).
+    undone_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_graph_audit_workspace_created", "workspace_id", "created_at"),
+        Index("ix_graph_audit_entity", "entity_id"),
+    )
+
+
+class Annotation(Base):
+    __tablename__ = "annotations"
+
+    # A mentor's (or member's) note on the graph: highlight a promising node, flag
+    # a wrong direction, or comment + reply in a thread. The student reviews these
+    # asynchronously. Highlight/flag are restricted to owner/mentor at the router.
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    author_id: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
+    target_type: Mapped[str] = mapped_column(String, nullable=False)  # concept | edge | cluster
+    # Target FKs are SET NULL (not CASCADE): when the pipeline merges or GCs a
+    # concept, the note survives as an orphan so the student still sees "your
+    # mentor flagged something here" rather than it silently vanishing.
+    target_concept_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("concepts.id", ondelete="SET NULL"), nullable=True
+    )
+    target_edge_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("edges.id", ondelete="SET NULL"), nullable=True
+    )
+    # Clusters are referenced by LABEL, not id: recompute_clusters re-creates
+    # cluster rows with fresh ids on every ingest, so an id reference would orphan.
+    target_cluster_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # highlight | flag | comment
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # open | resolved — only roots carry a status; a reply points at its root.
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'open'")
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("annotations.id", ondelete="CASCADE"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_annotations_workspace", "workspace_id"),
+        Index("ix_annotations_concept", "target_concept_id"),
+        Index("ix_annotations_edge", "target_edge_id"),
+        Index("ix_annotations_parent", "parent_id"),
+        # Partial index for the open-flag/open-note tray is created in the migration.
     )

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@aws-amplify/adapter-nextjs": "^1.6.6",
+    "@icon-park/react": "^1.4.2",
     "@radix-ui/react-slot": "^1.2.5",
     "aws-amplify": "^6.16.0",
     "class-variance-authority": "^0.7.1",
@@ -19,6 +20,7 @@
     "lucide-react": "^1.21.0",
     "next": "16.2.7",
     "next-themes": "^0.4.6",
+    "pinyin-pro": "^3.28.1",
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",

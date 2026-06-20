@@ -6,7 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import get_engine
-from app.routers import clusters, concepts, documents, graph, health, me, workspaces
+from app.routers import (
+    annotations,
+    clusters,
+    concepts,
+    documents,
+    graph,
+    graph_edit,
+    health,
+    invites,
+    me,
+    workspaces,
+)
 
 
 @asynccontextmanager
@@ -57,7 +68,10 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(me.router)
 app.include_router(workspaces.router)
+app.include_router(invites.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
+app.include_router(graph_edit.router)
+app.include_router(annotations.router)
 app.include_router(concepts.router)
 app.include_router(clusters.router)

@@ -12,7 +12,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { type DocumentOut, type GraphData, type GraphNode } from '@/lib/api'
+import {
+  type DocumentOut,
+  type GraphData,
+  type GraphNode,
+  type WorkspaceCard,
+} from '@/lib/api'
 import { clusterColorMap } from '@/lib/cluster-color'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -35,6 +40,7 @@ import {
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { NavUser } from './NavUser'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 const ACCEPT = '.pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain'
 
@@ -173,6 +179,8 @@ export function NavSidebar({
   busy,
   loading,
   workspaceName,
+  workspaces,
+  currentId,
   email,
   onOpenSearch,
   focusedClusterId,
@@ -189,6 +197,8 @@ export function NavSidebar({
   busy: boolean
   loading: boolean
   workspaceName: string
+  workspaces: WorkspaceCard[]
+  currentId: string | undefined
   email: string | null
   onOpenSearch: () => void
   focusedClusterId: string | null
@@ -273,12 +283,11 @@ export function NavSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-1 py-1">
-          <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">
-            {workspaceName.charAt(0).toUpperCase()}
-          </div>
-          <span className="truncate text-sm font-medium">{workspaceName}</span>
-        </div>
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          currentId={currentId}
+          currentName={workspaceName}
+        />
       </SidebarHeader>
 
       <SidebarContent>

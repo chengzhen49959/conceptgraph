@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { pickIdToken } from './cookie-session'
 
 // Routes a logged-out visitor may see. Everything else redirects to /login.
-const PUBLIC_PATHS = ['/', '/login', '/signup']
+// `/invite/<token>` is public so an invitee can preview the invitation before
+// logging in; accepting it still requires auth (enforced by the backend).
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/invite']
 
 // Cheap routing gate: is an id-token cookie present? Token validity (signature,
 // expiry) is enforced by the backend on every API call and re-checked by

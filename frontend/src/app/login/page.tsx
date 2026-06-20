@@ -52,7 +52,13 @@ export default function LoginPage() {
     // freshly-set Cognito auth cookies and the server gate re-evaluates with the
     // new session. A client RSC navigation can race the cookie write and bounce
     // straight back to /login — which looks like "login did nothing".
-    window.location.assign('/dashboard')
+    //
+    // Honour a `?next=` redirect (e.g. arriving from an invite link), but only
+    // for in-app relative paths — reject absolute/protocol-relative URLs so the
+    // param can't be used as an open redirect.
+    const next = new URLSearchParams(window.location.search).get('next')
+    const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard'
+    window.location.assign(dest)
   }
 
   async function onSubmit(e: React.FormEvent) {

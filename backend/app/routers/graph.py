@@ -30,6 +30,7 @@ class GraphNode(BaseModel):
 
 
 class GraphLink(BaseModel):
+    id: uuid.UUID  # edge id — lets the UI edit/delete a specific relation
     source: uuid.UUID
     target: uuid.UUID
     relation: str
@@ -88,6 +89,7 @@ async def get_graph(
     link_rows = (
         await session.execute(
             select(
+                Edge.id,
                 Edge.source_concept_id,
                 Edge.target_concept_id,
                 Edge.relation,
@@ -112,7 +114,7 @@ async def get_graph(
             for r in node_rows
         ],
         links=[
-            GraphLink(source=r[0], target=r[1], relation=r[2], weight=r[3])
+            GraphLink(id=r[0], source=r[1], target=r[2], relation=r[3], weight=r[4])
             for r in link_rows
         ],
         clusters=[GraphCluster(id=r[0], label=r[1]) for r in cluster_rows],

@@ -2,19 +2,45 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { ChevronRight, FileText, X } from 'lucide-react'
 import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronRight,
+  FileText,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react'
+import {
+  type Annotation,
   type ConceptDetail as ConceptData,
   type ConceptPassage,
   type GraphData,
   type GraphNode,
+  createEdge,
+  deleteConcept,
+  deleteEdge,
   getConcept,
   getConceptPassages,
+  updateConcept,
 } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ConceptAnnotations } from './ConceptAnnotations'
+import { ConceptCombobox } from './ConceptCombobox'
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -100,13 +126,26 @@ function Highlighted({ text, terms }: { text: string; terms: string[] }) {
 export function ConceptPanel({
   node,
   graph,
+  canEdit,
+  annotations,
+  workspaceId,
   onClose,
   onNavigate,
+  onMutated,
+  onAnnotationsChanged,
 }: {
   node: GraphNode
   graph: GraphData
+  canEdit: boolean
+  // Annotations targeting this concept (roots + replies).
+  annotations: Annotation[]
+  workspaceId: string | undefined
   onClose: () => void
   onNavigate: (id: string) => void
+  // Refresh the graph after a structural edit (rename / delete / connect).
+  onMutated: () => void
+  // Refetch the workspace annotation list after a note / highlight / flag change.
+  onAnnotationsChanged: () => void
 }) {
   // Fetched data is tagged with the concept id it belongs to. The view derives
   // both the current-concept data and its loading flag from that tag, so a
@@ -218,24 +257,182 @@ export function ConceptPanel({
     return out
   }, [graph, node.id])
 
+  // Each incident edge (with its id), for inline relation editing.
+  const incidentEdges = useMemo(() => {
+    const byId = new Map(graph.nodes.map((n) => [n.id, n.name]))
+    return graph.links
+      .filter((l) => l.source === node.id || l.target === node.id)
+      .map((l) => {
+        const outgoing = l.source === node.id
+        const otherId = (outgoing ? l.target : l.source) as string
+        return {
+          id: l.id,
+          otherId,
+          otherName: byId.get(otherId) ?? otherId,
+          relation: l.relation,
+          outgoing,
+        }
+      })
+  }, [graph, node.id])
+
+  // Distinct directly-connected concepts — the count offered by the cascade
+  // delete option ("delete this + N connected").
+  const neighborCount = useMemo(
+    () => new Set(incidentEdges.map((e) => e.otherId)).size,
+    [incidentEdges],
+  )
+
+  // --- editing state ---------------------------------------------------------
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [newTargetId, setNewTargetId] = useState('')
+  const [newRelation, setNewRelation] = useState('')
+  const [addingRel, setAddingRel] = useState(false)
+
+  const startEdit = () => {
+    setEditName(node.name)
+    setEditDesc(node.description ?? '')
+    setEditing(true)
+  }
+  const saveEdit = async () => {
+    const n = editName.trim()
+    if (!n) return
+    setSavingEdit(true)
+    try {
+      await updateConcept(node.id, { name: n, description: editDesc.trim() || null })
+      setEditing(false)
+      toast.success('Saved')
+      onMutated()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+  const doDelete = async (cascade: boolean) => {
+    setDeleting(true)
+    try {
+      const r = await deleteConcept(node.id, { cascade })
+      toast.success(
+        r.deleted_concepts > 1
+          ? `Deleted ${r.deleted_concepts} concepts`
+          : 'Concept deleted',
+      )
+      onMutated()
+      onClose()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setDeleting(false)
+      setConfirmDeleteOpen(false)
+    }
+  }
+  const addConnection = async () => {
+    if (!newTargetId || !newRelation.trim()) return
+    setAddingRel(true)
+    try {
+      await createEdge({
+        source_concept_id: node.id,
+        target_concept_id: newTargetId,
+        relation: newRelation.trim(),
+      })
+      setNewRelation('')
+      setNewTargetId('')
+      toast.success('Connected')
+      onMutated()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setAddingRel(false)
+    }
+  }
+  const removeEdge = async (edgeId: string) => {
+    try {
+      await deleteEdge(edgeId)
+      toast.success('Relation removed')
+      onMutated()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
       <div className="flex items-start justify-between gap-2 border-b p-4">
-        <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold">{node.name}</h2>
-          {detail?.cluster_label && (
-            <Badge variant="secondary" className="mt-1 font-normal">
-              {detail.cluster_label}
-            </Badge>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Close"
-        >
-          <X className="size-4" />
-        </button>
+        {editing ? (
+          <div className="flex-1 space-y-2">
+            <Input
+              autoFocus
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Name"
+            />
+            <Input
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              placeholder="Description (optional)"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={saveEdit}
+                disabled={savingEdit || !editName.trim()}
+              >
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(false)}
+                disabled={savingEdit}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold">{node.name}</h2>
+              {detail?.cluster_label && (
+                <Badge variant="secondary" className="mt-1 font-normal">
+                  {detail.cluster_label}
+                </Badge>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              {canEdit && (
+                <button
+                  onClick={startEdit}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label="Edit concept"
+                >
+                  <Pencil className="size-4" />
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => setConfirmDeleteOpen(true)}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="Delete concept"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -275,7 +472,6 @@ export function ConceptPanel({
                   </div>
                 </Section>
               )}
-
             </>
           )}
 
@@ -339,23 +535,154 @@ export function ConceptPanel({
             )
           )}
 
-          {neighbors.length > 0 && (
-            <Section title={`Connected concepts (${neighbors.length})`}>
-              <div className="flex flex-wrap gap-1.5">
-                {neighbors.map((nb) => (
-                  <button
-                    key={nb.id}
-                    onClick={() => onNavigate(nb.id)}
-                    className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent"
+          {canEdit ? (
+            <Section title={`Relations (${incidentEdges.length})`}>
+              <ul className="space-y-1">
+                {incidentEdges.map((e) => (
+                  <li
+                    key={e.id}
+                    className="group/edge flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
                   >
-                    {nb.name}
-                  </button>
+                    {e.outgoing ? (
+                      <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ArrowLeft className="size-3 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="shrink-0 text-muted-foreground">
+                      {e.relation}
+                    </span>
+                    <button
+                      onClick={() => onNavigate(e.otherId)}
+                      className="min-w-0 flex-1 truncate text-left hover:underline"
+                      title={e.otherName}
+                    >
+                      {e.otherName}
+                    </button>
+                    <button
+                      onClick={() => removeEdge(e.id)}
+                      aria-label="Remove relation"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/edge:opacity-100"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </li>
                 ))}
+              </ul>
+
+              <div className="mt-2 flex items-center gap-1.5">
+                <ConceptCombobox
+                  concepts={graph.nodes.filter((n) => n.id !== node.id)}
+                  value={newTargetId}
+                  onChange={setNewTargetId}
+                  placeholder="Connect to…"
+                />
+                <Input
+                  value={newRelation}
+                  onChange={(e) => setNewRelation(e.target.value)}
+                  placeholder="relation"
+                  className="h-8 w-28 text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addConnection()
+                  }}
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="size-8 shrink-0"
+                  onClick={addConnection}
+                  disabled={addingRel || !newTargetId || !newRelation.trim()}
+                  aria-label="Add connection"
+                >
+                  <Plus className="size-4" />
+                </Button>
               </div>
             </Section>
+          ) : (
+            neighbors.length > 0 && (
+              <Section title={`Connected concepts (${neighbors.length})`}>
+                <div className="flex flex-wrap gap-1.5">
+                  {neighbors.map((nb) => (
+                    <button
+                      key={nb.id}
+                      onClick={() => onNavigate(nb.id)}
+                      className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent"
+                    >
+                      {nb.name}
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )
           )}
+
+          <Separator />
+
+          <ConceptAnnotations
+            conceptId={node.id}
+            workspaceId={workspaceId}
+            canFlag={canEdit}
+            annotations={annotations}
+            onChanged={onAnnotationsChanged}
+          />
         </div>
       </ScrollArea>
+
+      <Dialog
+        open={confirmDeleteOpen}
+        onOpenChange={(o) => !deleting && setConfirmDeleteOpen(o)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete &quot;{node.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              Choose what to remove. Source citations stay with their documents,
+              and you can undo this from the activity feed.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <button
+              disabled={deleting}
+              onClick={() => doDelete(false)}
+              className="w-full rounded-md border p-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Trash2 className="size-4" /> Delete this node only
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Removes this concept and its connections. Connected concepts stay.
+              </p>
+            </button>
+
+            {neighborCount > 0 && (
+              <button
+                disabled={deleting}
+                onClick={() => doDelete(true)}
+                className="w-full rounded-md border border-destructive/40 p-3 text-left text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Trash2 className="size-4" /> Delete this + {neighborCount}{' '}
+                  connected
+                </div>
+                <p className="mt-0.5 text-xs text-destructive/80">
+                  Also removes the {neighborCount} directly-connected concept
+                  {neighborCount > 1 ? 's' : ''}.
+                </p>
+              </button>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

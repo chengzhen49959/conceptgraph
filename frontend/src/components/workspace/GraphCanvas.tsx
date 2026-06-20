@@ -103,6 +103,7 @@ export function GraphCanvas({
   onFocusCluster,
   highlightClusterId,
   highlightConceptId,
+  annotationsByConceptId,
 }: {
   data: GraphData
   selectedId: string | null
@@ -115,6 +116,10 @@ export function GraphCanvas({
   highlightClusterId: string | null
   /** Concept the sidebar is hovering — light it and its neighbours. */
   highlightConceptId: string | null
+  /** Open mentor markers per concept: green ring = highlight, amber = flag.
+   *  Keyed by concept id, so markers show on concept dots (drill-in / unclustered),
+   *  not on overview cluster super-nodes. */
+  annotationsByConceptId?: Map<string, { highlight: boolean; flag: boolean }>
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<ForceGraphHandle | null>(null)
@@ -563,6 +568,32 @@ export function GraphCanvas({
               ctx.lineWidth = 1.5 / scale
               ctx.strokeStyle = c.selStroke
               ctx.stroke()
+            }
+
+            // Mentor annotation markers — drawn at full opacity even on a dimmed
+            // node so a flagged direction is never washed out. Green ring =
+            // highlight (good direction); amber ring + corner badge = flag.
+            const ann = annotationsByConceptId?.get(n.id)
+            if (ann && (ann.highlight || ann.flag)) {
+              ctx.globalAlpha = 1
+              if (ann.highlight) {
+                ctx.beginPath()
+                ctx.arc(x, y, r + 3 / scale, 0, 2 * Math.PI)
+                ctx.lineWidth = 2 / scale
+                ctx.strokeStyle = '#22c55e'
+                ctx.stroke()
+              }
+              if (ann.flag) {
+                ctx.beginPath()
+                ctx.arc(x, y, r + (ann.highlight ? 6 : 3) / scale, 0, 2 * Math.PI)
+                ctx.lineWidth = 2 / scale
+                ctx.strokeStyle = '#f59e0b'
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.arc(x + r * 0.72, y - r * 0.72, 2.6 / scale, 0, 2 * Math.PI)
+                ctx.fillStyle = '#f59e0b'
+                ctx.fill()
+              }
             }
             ctx.globalAlpha = 1
           }}
