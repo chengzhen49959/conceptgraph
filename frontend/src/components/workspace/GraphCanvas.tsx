@@ -480,8 +480,7 @@ export function GraphCanvas({
     return (
       <div
         ref={wrapRef}
-        className="flex h-full w-full items-center justify-center"
-        style={{ background: c.bg }}
+        className="flex h-full w-full items-center justify-center bg-white dark:bg-[#1e1e1e]"
       >
         <p className="text-sm text-muted-foreground">
           Your graph is empty — upload a document to grow it.
@@ -493,8 +492,8 @@ export function GraphCanvas({
   return (
     <div
       ref={wrapRef}
-      className="relative h-full w-full overflow-hidden"
-      style={{ background: c.bg, cursor: hoverId ? 'pointer' : 'default' }}
+      className="relative h-full w-full overflow-hidden bg-white dark:bg-[#1e1e1e]"
+      style={{ cursor: hoverId ? 'pointer' : 'default' }}
     >
       {Comp && size.w > 0 && size.h > 0 && (
         <Comp
