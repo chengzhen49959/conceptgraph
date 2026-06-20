@@ -10,16 +10,16 @@
   "counts": {
     "chars": 3286,
     "chunks": 9,
-    "raw_concepts": 67,
-    "distinct_names": 59,
-    "final_concepts": 53,
-    "raw_relations": 39,
-    "final_relations": 39,
-    "new": 53,
+    "raw_concepts": 76,
+    "distinct_names": 70,
+    "final_concepts": 60,
+    "raw_relations": 52,
+    "final_relations": 51,
+    "new": 60,
     "exact": 0,
-    "match_call": 28,
-    "matched": 6,
-    "none": 22
+    "match_call": 31,
+    "matched": 10,
+    "none": 21
   },
   "quality": {
     "glossary_leaks": [],
@@ -28,121 +28,174 @@
   },
   "concepts": [
     {
-      "name": "两头夹击",
-      "description": "两头夹击是一种把剧本分析分为整体结构与局部场景两个层次的策略。它先检视整体骨架是否成立，再逐个场景拆解细节，并从全局与局部两个方向相互印证，从而更全面地定位问题所在。",
+      "name": "Five-Step Scene Analysis",
+      "description": "Five-Step Scene Analysis is a scene-level method for evaluating a dramatic scene through five sequential checks. It makes structural problems visible by testing the scene’s underlying purpose and construction against fixed criteria (such as forces, objectives, movement/action, conflict, and payoff/value shifts), rather than relying on intuition. By stepping through what is happening on the surface and what changes beneath it, it clarifies whether the scene is coherent and effective.",
       "aliases": [
-        "分析的两个层面"
+        "Five-Step Method for Scene Analysis",
+        "Five-step analysis method",
+        "Scene Analysis Five-Step Method"
       ],
-      "mentions": 2,
+      "mentions": 3,
       "decided_by": "judged-distinct",
-      "nearest_sim": 0.6913,
-      "match_reason": "“两头夹击”指同时从整体和局部两端推进的混合策略，不等同于单纯的自上而下、自下而上或仅场景分析。",
+      "nearest_sim": 0.6822,
+      "match_reason": "The incoming concept is a specific five-step procedure, while the candidates are broader scene/screenplay analysis concepts rather than the same fixed method.",
       "merges": [
         {
-          "name": "分析的两个层面",
-          "sim": 0.7232,
-          "reason": "都指向从整体结构与局部场景两个层面来分析剧本的框架/策略。"
+          "name": "Five-step analysis method",
+          "sim": 0.8975,
+          "reason": "Both describe the same five-step scene analysis procedure used to test scene structure and expose flaws."
+        },
+        {
+          "name": "Scene Analysis Five-Step Method",
+          "sim": 0.8723,
+          "reason": "Both describe the same five-step scene analysis procedure for evaluating a dramatic scene through structured successive checks."
         }
       ]
     },
     {
-      "name": "场景分析五步法",
-      "description": "场景分析五步法是一种用于分析场景的分步骤方法，强调将剧本或场景按固定流程拆分并逐步审视。它通过检查结构、冲突、信息揭示及人物变化等关键要素，帮助在系统检验中更容易发现文本或设定中的问题与瑕疵。",
+      "name": "Scene Turn",
+      "description": "A scene turn is a decisive shift in a scene’s dramatic trajectory, where the underlying dramatic value changes sharply (for example, from hope to disappointment or calm to conflict). It marks the moment when the scene starts moving toward its final emotional or narrative state, reorienting meaning and direction rather than remaining static.",
       "aliases": [
-        "五步法",
-        "五步分析法"
+        "turn",
+        "Turning Point",
+        "Scene Value Shift"
       ],
-      "mentions": 2,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.7684,
-      "match_reason": "“场景分析五步法”是场景分析的特定分步骤版本，而候选项“场景分析”是更一般的分析方法，不是同一概念。",
-      "merges": [
-        {
-          "name": "五步分析法",
-          "sim": 0.7189,
-          "reason": "两者都是按五个步骤逐场检查剧本/场景的分析方法，目的都是发现文本问题。"
-        }
-      ]
-    },
-    {
-      "name": "相切",
-      "description": "相切是一种看似有关联、实则缺乏直接冲突的关系状态。双方各自表达诉求，欲望与目标并不正面对撞，只是擦肩而过或各说各话，因此难以形成有效的戏剧交锋；相应地，画面往往需要通过更明确的正面冲突来强化张力。",
-      "aliases": [
-        "切线冲突"
-      ],
-      "mentions": 2,
+      "mentions": 3,
       "decided_by": "new",
-      "nearest_sim": 0.5841,
+      "nearest_sim": 0.5032,
       "match_reason": null,
       "merges": [
         {
-          "name": "切线冲突",
-          "sim": 0.6427,
-          "reason": "“切线冲突”指双方并未正面交锋、而是擦肩而过式的冲突；候选[1]“相切”正是这种看似有关联但没有真正对撞的关系状态。"
+          "name": "Turning Point",
+          "sim": 0.6439,
+          "reason": "A scene turn is the same kind of decisive shift in a scene’s trajectory/value that the turning point describes."
+        },
+        {
+          "name": "Scene Value Shift",
+          "sim": 0.631,
+          "reason": "Both describe the pivotal change in a scene’s underlying dramatic value/trajectory from its start toward a new final state."
         }
       ]
     },
     {
-      "name": "非事件",
-      "description": "非事件是指场景开头与结尾的价值状态相同，因而没有可辨认的事件变化或实质性推进。此类场景在叙事中通常缺乏转折与推动作用，常显得停留或平淡，甚至可能需要删除或重写以提升有效性。",
+      "name": "Progressive complication",
+      "description": "A sequence of developments that escalates conflict, pressure, and stakes after an inciting incident. Each new stage intensifies the struggle, making the central situation harder and revealing deeper layers of tension to drive the story forward.",
       "aliases": [
-        "非事件场景"
+        "progress",
+        "Conflict Escalation"
       ],
       "mentions": 2,
       "decided_by": "new",
-      "nearest_sim": 0.5563,
+      "nearest_sim": 0.5871,
       "match_reason": null,
       "merges": [
         {
-          "name": "非事件场景",
-          "sim": 0.799,
-          "reason": "两者都指开头与结尾价值状态相同、没有实质变化的场景/情况，属于同一概念。"
+          "name": "Conflict Escalation",
+          "sim": 0.6225,
+          "reason": "Both describe a story pattern where conflict intensifies over time, with rising stakes and pressure."
         }
       ]
     },
     {
-      "name": "转折",
-      "description": "转折是叙事或场景中推动局势发生明显变化的关键节点，标志着前后价值状态、目标或结果的分界。它通过事件、反应或信息揭示，引发有效的戏剧性改变，使故事或发展方向从铺垫阶段转入新的阶段。",
+      "name": "Opposing Force",
+      "description": "An opposing force is the antagonistic power that blocks or resists the driving force and the protagonist’s goals. It can be a person, system, circumstance, or internal obstacle, and it generates meaningful resistance and dramatic pressure that clarifies the scene’s conflict.",
       "aliases": [
-        "转折点"
+        "antagonistic force"
       ],
       "mentions": 2,
       "decided_by": "judged-distinct",
-      "nearest_sim": 0.6737,
-      "match_reason": "“转折”指价值状态发生变化的节点；“价值负荷”指场景所承载的价值状态本身，不是变化点。",
+      "nearest_sim": 0.7749,
+      "match_reason": "The incoming concept is one side of a conflict (the resisting force), while candidate 0 is the overall conflict between opposing forces, not the same concept.",
       "merges": [
         {
-          "name": "转折点",
-          "sim": 0.7594,
-          "reason": "“转折点”就是叙事中发生明显变化的关键节点，与候选“转折”所指的戏剧性变化节点同一概念。"
+          "name": "Antagonistic Force",
+          "sim": 0.7681,
+          "reason": "“Antagonistic force” and “opposing force” denote the same role: the force that resists the protagonist or driving force."
         }
       ]
     },
     {
-      "name": "逻辑漏洞",
-      "description": "逻辑漏洞指叙事中因果链条断裂、前提不成立或推演不一致等问题，导致关键事件缺乏合理因果支撑。它等同于一种叙事判断标准，用来检验情节的逻辑链是否自洽、关键因果是否成立，从而识别会破坏整体可信度的逻辑缺口。",
+      "name": "Non-event",
+      "description": "A non-event is a scene in which the underlying value remains unchanged from beginning to end, so no meaningful dramatic change occurs. It may still convey information, but it typically does not advance story tension and is often a candidate for removal or rewriting.",
       "aliases": [
-        "因果漏洞",
-        "漏洞问题"
+        "Non-event scene"
       ],
       "mentions": 2,
       "decided_by": "new",
-      "nearest_sim": 0.5653,
+      "nearest_sim": 0.5084,
       "match_reason": null,
       "merges": [
         {
-          "name": "漏洞问题",
-          "sim": 0.6959,
-          "reason": "两者都指叙事中的逻辑/因果缺口，导致情节不自洽、可信度下降，概念一致。"
+          "name": "Non-event scene",
+          "sim": 0.8162,
+          "reason": "Same concept: both describe a scene with no meaningful dramatic change where the ending value matches the opening value."
         }
       ]
     },
     {
-      "name": "自上而下",
-      "description": "一种分析方式，先从整体结构入手，再逐层检查局部是否服从整体。它强调先判断大框架是否成立，再把注意力下沉到更细的组成部分。",
+      "name": "Dramatic Action",
+      "description": "Dramatic action is purposeful behavior in which a character acts toward a goal while facing obstacles, risk, or opposition. It advances the story by making visible changes to the situation—unlike mere activity, which may not alter outcomes. Through these visible deeds, it reveals character and expresses meaning, motivation, and theme.",
       "aliases": [
-        "宏观分析",
-        "从上到下"
+        "Action",
+        "Behavior on Screen"
+      ],
+      "mentions": 2,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7483,
+      "match_reason": "Dramatic action is purposeful behavior that reveals character, while dramatic movement is the forward-changing progression of a story event; they are related but not the same concept.",
+      "merges": [
+        {
+          "name": "Action",
+          "sim": 0.7916,
+          "reason": "Dramatic Action matches the incoming concept: purposeful behavior in drama that advances the story and changes the situation."
+        }
+      ]
+    },
+    {
+      "name": "Coincidence Resolution",
+      "description": "Coincidence resolution is a narrative technique in which accidental or coincidental events solve the central dramatic problem rather than character decisions, actions, or causal development. The coincidence may start or complicate events, but if it resolves the climax, it often feels unearned and can weaken the story’s causal structure and credibility.",
+      "aliases": [
+        "Deus Ex Machina",
+        "Convenient Coincidence",
+        "Coincidental Resolution"
+      ],
+      "mentions": 2,
+      "decided_by": "new",
+      "nearest_sim": 0.4878,
+      "match_reason": null,
+      "merges": [
+        {
+          "name": "Coincidental Resolution",
+          "sim": 0.8744,
+          "reason": "Same concept: both describe a plot resolution where chance/coincidence rather than character action solves the central conflict."
+        }
+      ]
+    },
+    {
+      "name": "Causal Chain",
+      "description": "A causal chain is the sequence of connected causes and effects that explains why events in a story occur. It links earlier actions, conditions, and information to later outcomes so that key events follow intelligibly. If this causal logic is weak or breaks, the narrative can feel inconsistent, unconvincing, or difficult to follow.",
+      "aliases": [
+        "Cause and Effect Chain",
+        "Causality",
+        "Causal logic"
+      ],
+      "mentions": 2,
+      "decided_by": "new",
+      "nearest_sim": 0.582,
+      "match_reason": null,
+      "merges": [
+        {
+          "name": "Causal logic",
+          "sim": 0.767,
+          "reason": "Both refer to the story’s cause-and-effect structure that makes events intelligible and coherent."
+        }
+      ]
+    },
+    {
+      "name": "Screenplay Analysis",
+      "description": "The systematic examination of a screenplay to determine how well its parts work together. It typically evaluates both the overall structure and the behavior of individual scenes to expose strengths and weaknesses.",
+      "aliases": [
+        "Script Analysis"
       ],
       "mentions": 1,
       "decided_by": "new",
@@ -151,735 +204,904 @@
       "merges": []
     },
     {
-      "name": "自下而上",
-      "description": "一种分析方式，先从局部细节入手，再把细节汇总回整体判断。它强调通过逐项检查具体部分，反推出整体结构是否可靠。",
+      "name": "Macro-Level Analysis",
+      "description": "A top-down method of evaluation that starts with the entire work and checks whether its overall structure is sound. It focuses on whether the large-scale arrangement of events and scenes is coherent and effective before looking at smaller details.",
       "aliases": [
-        "微观分析",
-        "从下到上"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.8649,
-      "match_reason": "“自下而上”是从局部到整体；候选“自上而下”是从整体到局部，二者是相反的分析方式，不是同一概念。",
-      "merges": []
-    },
-    {
-      "name": "宏观层",
-      "description": "用于把握整体骨架和结构是否成立的分析层面。它关注作品的总体组织、层次关系和是否具备支撑全局的框架。",
-      "aliases": [
-        "宏观层面"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6178,
-      "match_reason": "“宏观层”是分析的层面/视角，而“自上而下”是从整体到局部的分析方法，概念不完全相同。",
-      "merges": []
-    },
-    {
-      "name": "场景分析",
-      "description": "对单个场景进行拆解和检查的分析方法，通常用于判断场景在戏剧结构中的功能和质量。它通过逐场审视事件、冲突和转折，帮助暴露结构问题。",
-      "aliases": [
-        "场景解剖"
+        "Top-Down Analysis"
       ],
       "mentions": 1,
       "decided_by": "new",
-      "nearest_sim": 0.5015,
+      "nearest_sim": 0.542,
       "match_reason": null,
       "merges": []
     },
     {
-      "name": "大情节",
-      "description": "一种强调强因果推进、明显转折和结局闭合的叙事类型。它通常依靠事件之间的连锁反应推动故事前进，并在结尾形成较强的整体收束。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4588,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "小情节",
-      "description": "一种更强调开放性、日常性和较弱因果链的叙事类型。它往往不追求强烈的情节闭合，而是让人物处境、情绪或关系缓慢展开。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6563,
-      "match_reason": "“小情节”强调开放性、弱因果和日常展开；“大情节”则强调强因果推进、明显转折和结局闭合，二者是对立类型，不是同一概念。",
-      "merges": []
-    },
-    {
-      "name": "反情节",
-      "description": "一种有意削弱传统情节推进逻辑的叙事类型。它常通过断裂、反高潮、弱因果或开放式结构，抵抗标准戏剧性叙事的期待。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6606,
-      "match_reason": "“反情节”是有意反叙事、削弱情节推进逻辑的类型；“小情节”只是更弱因果、偏开放的叙事类型，二者相关但不等同。",
-      "merges": []
-    },
-    {
-      "name": "激励事件",
-      "description": "推动故事正式启动的关键事件。它改变人物原有状态，制造新的问题或目标，并为后续冲突提供起点。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5098,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "进展纠葛",
-      "description": "故事在发展过程中不断加深和复杂化的冲突层次。它通过新的障碍、误解或代价升级叙事张力，并把人物推向更难的处境。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5673,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "危机",
-      "description": "故事中需要做出关键抉择的紧要时刻。它通常把人物置于两难或多难境地，使其必须在不同代价之间做选择。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5806,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "高潮",
-      "description": "叙事中冲突达到最高点并发生决定性变化的时刻。它通常以不可逆的行动或结果完成主要矛盾的解决或转折。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4928,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "结局",
-      "description": "故事在高潮之后对主要冲突进行收束的部分。它负责呈现结果、余波或状态变化，让叙事在结构上完成终止。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.7338,
-      "match_reason": "“结局”指故事高潮后的收束部分；“大情节”是强调强因果推进和闭合的叙事类型，不是同一概念。",
-      "merges": []
-    },
-    {
-      "name": "主控思想",
-      "description": "作品所要表达的核心价值判断及其原因说明。它概括故事想证明什么，以及为什么会得出这样的判断。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4972,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "人物弧光",
-      "description": "人物在故事过程中发生的内在变化轨迹。它体现人物如何在压力、选择和行动中逐渐显露真实面貌，并在关键时刻完成转变。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.531,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "五部分设计",
-      "description": "一种将故事结构拆分为五个核心环节的分析框架，包括激励事件、进展纠葛、危机、高潮和结局。它用于检查情节推进是否完整、位置是否恰当、变化是否充分。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.596,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "微观层",
-      "description": "叙事分析中关注单个场景、局部动作和细节推进的层面。它用于从局部结构入手，观察更细小的节奏、冲突和信息释放。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6088,
-      "match_reason": "“微观层”是叙事分析的一个局部观察层面，不等同于“场景分析”这一具体方法；候选[1]还是其对立面“宏观层”。",
-      "merges": []
-    },
-    {
-      "name": "冲突",
-      "description": "在叙事场景中，指推动场景运转的双方或多方目标之间的直接对抗。冲突通常表现为不同力量各自想要达成相反目的，并通过阻挡、争夺或抵消形成戏剧张力。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5254,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "场景目标",
-      "description": "场景中某一力量为了达成的具体目的，用“为了……”的方式加以表述。它用于明确角色或力量在该场景中的主动诉求，并与对抗力量的诉求形成对照。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5239,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "对抗力量",
-      "description": "在场景中阻挡主导力量达成目标的反向力量或阻力。它同样具有自身的目的与诉求，并通过与主导力量的对立构成场景冲突。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6851,
-      "match_reason": "“对抗力量”指的是冲突中的一方力量；“冲突”是双方或多方之间的对立关系本身，概念不相同。",
-      "merges": []
-    },
-    {
-      "name": "开篇价值",
-      "description": "一个场景在开始时被置于台面的核心价值对立及其初始状态。它通常以两极对照的方式呈现，例如自由与牢笼、爱与恨、信任与背叛，并标明起始时是正向还是负向。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5161,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "潜文本",
-      "description": "叙事中未被直接说出、却通过行动、语气和情境暗示出来的隐含意义层。它与表层文本共同构成场景的完整信息，常用于揭示角色真实意图和关系张力。",
+      "name": "Micro-Level Analysis",
+      "description": "A bottom-up method of evaluation that examines individual scenes or local components in detail. It is used to identify specific weaknesses or functions at the level where story meaning is created moment by moment.",
       "aliases": [
-        "潜台词"
-      ],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5642,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "文本",
-      "description": "叙事中直接呈现为字面内容的显性信息层。它包含角色说出的话、明确写出的动作和可直接观察到的场面信息。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6924,
-      "match_reason": "“文本”指字面显性的表层信息；“潜文本”指隐含的意义层，二者是相对概念而非同一概念。",
-      "merges": []
-    },
-    {
-      "name": "节拍",
-      "description": "在场景分析中，节拍指一次动作与反应的交流单位。它用于把场景拆分成一连串可观察的互动变化，只有当行为发生明显变化时才进入下一个节拍。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5316,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "进行时短语",
-      "description": "进行时短语是一种用持续进行的表达方式来写出动作的语言形式。它常被用来呈现角色的潜文本动作，并带出相应的情感色彩。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.442,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "价值负荷",
-      "description": "价值负荷是场景在某一时刻所承载的正面或负面价值状态。它常用于比较场景开篇与结尾的变化，从而判断场景是否发生了转折。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6603,
-      "match_reason": "“价值负荷”是场景任一时刻的价值状态，较为泛化；“开篇价值”特指场景开始时的初始价值对立及其状态，范围更窄，不是同一概念。",
-      "merges": []
-    },
-    {
-      "name": "场景弧线",
-      "description": "场景弧线是一个场景内部从起始状态走向变化结果的结构轨迹，强调动作、反应与结果之间的连贯推进。它帮助场景形成明确的方向感，使表面零散的行为围绕一个目的展开。",
-      "aliases": [
-        "场景中的弧线",
-        "弧线"
+        "Bottom-Up Analysis"
       ],
       "mentions": 1,
       "decided_by": "judged-distinct",
-      "nearest_sim": 0.6325,
-      "match_reason": "“场景弧线”指场景内部从起始到结果的推进轨迹；“场景分析”是对场景进行拆解检查的方法，二者不是同一概念。",
+      "nearest_sim": 0.7792,
+      "match_reason": "Micro-level analysis is a bottom-up, detail-focused approach, while macro-level analysis is a top-down, whole-structure approach; they are contrasting concepts, not the same.",
       "merges": []
     },
     {
-      "name": "鸿沟",
-      "description": "戏剧结构中期望与结果之间的落差，表示人物原本预期的事情没有按预想发生。它能制造失衡感，并推动冲突和后续变化。",
-      "aliases": [
-        "期望与结果的鸿沟"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6133,
-      "match_reason": "“鸿沟”指期望与结果之间的落差；“反情节”是削弱传统情节推进的叙事类型，概念不同。",
-      "merges": []
-    },
-    {
-      "name": "冲突逐级升级",
-      "description": "冲突强度按照层次不断加深的结构方式。它要求对抗、压力或代价持续上升，而不是在同一水平上反复拉扯。",
-      "aliases": [
-        "逐级升级的冲突"
-      ],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5416,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "主人公欲望",
-      "description": "故事中主人公最核心、最明确的追求目标。它驱动人物的行动选择，并为情节提供持续的方向感。",
-      "aliases": [
-        "主人公的欲望",
-        "角色欲望"
-      ],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4789,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "好奇心",
-      "description": "观众对于后续结果、真相或变化的期待与追问。它是叙事张力的重要来源，能促使观众持续关注故事进展。",
-      "aliases": [
-        "悬念性好奇心"
-      ],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4412,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "关切",
-      "description": "观众对人物命运、价值立场或处境产生的情感投入。它使观众不只是想知道结果，还会在情感上在意结果对谁意味着什么。",
-      "aliases": [
-        "情感关切"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6426,
-      "match_reason": "“关切”强调对人物命运和处境的情感投入；“好奇心”只是对后续结果或真相的期待追问，概念不同。",
-      "merges": []
-    },
-    {
-      "name": "人物真相",
-      "description": "人物在压力和选择中显露出来的真实面貌、价值取向与内在本质。它不是表面性格展示，而是在关键时刻通过行动被揭示出来。",
-      "aliases": [
-        "人物的真相"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6936,
-      "match_reason": "“人物真相”强调人物在关键时刻显露的真实本质；“人物弧光”是人物在故事中的内在变化轨迹，属于不同概念。",
-      "merges": []
-    },
-    {
-      "name": "巧合",
-      "description": "由偶然事件造成的情节结果或转折。它如果被用来替代人物选择和因果推进，往往会削弱戏剧说服力。",
-      "aliases": [
-        "偶然性"
-      ],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5568,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "戏剧化解说",
-      "description": "把背景信息、因果关系或设定内容融入戏剧行动中呈现的写法。它避免直接说明，而是让信息通过冲突、动作和场面自然显露。",
-      "aliases": [
-        "戏剧化说明"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6058,
-      "match_reason": "候选项描述的是直接显性呈现的信息层；‘戏剧化解说’则是把背景/设定信息融入行动中间接呈现，两者不相同。",
-      "merges": []
-    },
-    {
-      "name": "解说场景",
-      "description": "一种场景，其存在的主要目的只是向观众交代信息。它通常不应单独承担说明功能，而应把信息拆散并嵌入有冲突的场景中自然呈现。",
-      "aliases": [
-        "交代戏"
-      ],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6538,
-      "match_reason": "“解说场景”指主要用于交代信息的场景；候选[1]是相反的“戏剧化解说”，强调把信息融入冲突中呈现，不是同一概念。",
-      "merges": []
-    },
-    {
-      "name": "活动",
-      "description": "人物表面上忙碌运作，但并没有形成有效的目标推进、风险变化或结果落差的行为状态。它只是填充而非故事，因此通常不具备戏剧性价值。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5646,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "行动",
-      "description": "带着目标、预期和结果差距推进情节的行为方式。它与单纯的活动不同，能够制造冲突、变化和故事发展。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.584,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "冲突层级",
-      "description": "冲突在对抗强度或对立程度上的层次。若同一层级的较量没有进一步升级，内容就容易显得重复和冗余。",
+      "name": "Scene Analysis",
+      "description": "The close examination of a single scene to determine how it functions within a screenplay. It asks what the scene does, how it does it, and whether its design supports the larger narrative.",
       "aliases": [],
       "mentions": 1,
       "decided_by": "judged-distinct",
-      "nearest_sim": 0.757,
-      "match_reason": "“冲突层级”指冲突强度所处的层次；“冲突逐级升级”指冲突强度不断加深的推进方式，二者不是同一概念。",
+      "nearest_sim": 0.7714,
+      "match_reason": "Scene analysis focuses on one scene, while screenplay analysis examines the entire screenplay, so they are related but not the same concept.",
       "merges": []
     },
     {
-      "name": "无升级较量",
-      "description": "一种对抗状态，其中后续冲突并未比前面的冲突更强、更复杂或更具后果。它通常意味着重复，适合合并或删除。",
-      "aliases": [],
+      "name": "Story",
+      "description": "A method-oriented framework for analyzing and constructing dramatic scenes and screenplays. It emphasizes disciplined diagnosis of structure and scene function so that problems become visible through systematic questioning.",
+      "aliases": [
+        "McKee's Story"
+      ],
       "mentions": 1,
       "decided_by": "judged-distinct",
-      "nearest_sim": 0.6559,
-      "match_reason": "“无升级较量”表示冲突没有逐步加深；候选[0]是“冲突逐级升级”的相反概念，[1]只是冲突层级的描述，不是同一概念。",
+      "nearest_sim": 0.6631,
+      "match_reason": "The incoming concept is a broader dramatic-analysis framework, while candidate 1 is only a specific five-step scene procedure; the others are also narrower or different.",
       "merges": []
     },
     {
-      "name": "台词点题",
-      "description": "角色把内心想法、动机或主题直接说出来，让台词承担解释和总结的功能。它会削弱戏剧中的含蓄和张力，常需要改写成表面话语与真实意图不一致的表达方式。",
+      "name": "Story triangle",
+      "description": "A storytelling framework that classifies a narrative as plot-driven, scene-driven, or anti-plot-driven. It is used to evaluate a work according to the expectations of the type of story it intends to be, rather than by a single universal standard.",
       "aliases": [
-        "戏剧腔",
-        "on-the-nose"
+        "narrative triangle"
       ],
       "mentions": 1,
       "decided_by": "new",
-      "nearest_sim": 0.5606,
+      "nearest_sim": 0.5138,
       "match_reason": null,
       "merges": []
     },
     {
-      "name": "兴趣问题",
-      "description": "一种叙事判断标准，用来检验作品是否能同时维持观众的好奇心与关切感，并在高潮处兑现前面积累的期待。它关注的是故事推进是否持续吸引人，以及结局是否给出足够有力的回报。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.6527,
-      "match_reason": "该概念是叙事评价标准，强调同时维持好奇心与关切并在高潮兑现期待；候选项分别只是‘好奇心’和‘关切’本身，不是这一标准。",
-      "merges": []
-    },
-    {
-      "name": "惊奇问题",
-      "description": "一种叙事判断标准，用来区分“廉价惊奇”和“真惊奇”。前者依赖隐瞒信息或突然吓人，后者则通过揭示一个其实一直存在、却被忽略的真相来制造惊讶，因此更有价值。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.4595,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "巧合问题",
-      "description": "一种叙事判断标准，用来评估巧合在情节中的使用方式。巧合可以用来推动故事进入某种局面或帮助故事走向收束，但不能承担解决高潮矛盾的核心功能。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "judged-distinct",
-      "nearest_sim": 0.711,
-      "match_reason": "“巧合问题”是对情节中巧合使用方式的叙事判断标准；候选“巧合”是具体的偶然事件或情节转折，本身不是该标准。",
-      "merges": []
-    },
-    {
-      "name": "喜剧问题",
-      "description": "一种叙事判断标准，用来衡量喜剧是否具备结构和明确的攻击对象。它强调喜剧不能只是段子堆砌，而必须让笑点服务于整体构造与讽刺目标。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5925,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "主观视点问题",
-      "description": "一种叙事判断标准，用来检查场景内部和故事整体的视点是否统一、清晰。它关注观众接收到的信息是否始终围绕某个明确的感知和理解位置展开。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5615,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "改编问题",
-      "description": "一种叙事判断标准，用来衡量小说或戏剧改编是否真正转化为电影叙事。合格的改编应当主要依靠电影特有的戏剧化手段来呈现，而不是依赖旁白或独白替代影像表达。",
-      "aliases": [],
-      "mentions": 1,
-      "decided_by": "new",
-      "nearest_sim": 0.5091,
-      "match_reason": null,
-      "merges": []
-    },
-    {
-      "name": "戏剧腔问题",
-      "description": "一种叙事判断标准，用来判断情感表达是否过度夸张、超出了动机所能支撑的范围。它所说的“过载”通常意味着人物情绪和行为不够可信，因而削弱戏剧效果。",
+      "name": "Plot",
+      "description": "A narrative mode that emphasizes causal chain, closure, and externally driven events. In this mode, story evaluation focuses on whether events are tightly connected and whether the ending resolves the central situation.",
       "aliases": [
-        "melodrama"
+        "big plot"
       ],
       "mentions": 1,
       "decided_by": "new",
-      "nearest_sim": 0.558,
+      "nearest_sim": 0.5629,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Scene",
+      "description": "A narrative mode that emphasizes moment-by-moment experience, openness, and local dramatic movement over strong causal closure. It is often judged by the quality of immediate situation and progression rather than by a fully closed ending.",
+      "aliases": [
+        "small plot"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7383,
+      "match_reason": "‘Scene’ here contrasts with ‘plot’ as an open, moment-by-moment narrative mode rather than the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Anti-plot",
+      "description": "A narrative mode that deliberately resists conventional causal structure, closure, and straightforward resolution. It uses disruption, ambiguity, or fragmentation to challenge standard expectations of plot progression.",
+      "aliases": [
+        "counterplot"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6454,
+      "match_reason": "The incoming concept is anti-plot, while the candidates are either the opposite concept (plot) or a framework that includes anti-plot as one category, not the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Inciting incident",
+      "description": "The event that initiates the central dramatic action of a story. It should be active and consequential enough to disturb the prior equilibrium and set the main conflict in motion.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4396,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Crisis",
+      "description": "The decisive moment in a story when the protagonist must make a genuine difficult choice. It usually presents a choice between two desirable outcomes or two harmful outcomes, and it cannot be easily avoided without consequence.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5287,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Climax",
+      "description": "The peak of dramatic action in which the central conflict reaches its highest intensity and produces an irreversible change. It resolves the story's main pressure by forcing a decisive outcome.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6445,
+      "match_reason": "A climax is the story’s peak of action and resolution of the main conflict, while a crisis is the decisive difficult choice before that; they are related but not the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Resolution",
+      "description": "The narrative stage that follows the climax and shows the consequences of the decisive action. It provides the final state of the story world after the central conflict has been settled.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6644,
+      "match_reason": "Resolution is the post-climax narrative stage showing the aftermath, not the climax itself or the general concept of plot.",
+      "merges": []
+    },
+    {
+      "name": "Controlling idea",
+      "description": "The underlying statement about value and cause that a story expresses through its action. It links what the story says matters with why that meaning is true, and it is best demonstrated through events rather than explicit explanation.",
+      "aliases": [
+        "theme statement"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.517,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Character arc",
+      "description": "The pattern of inner change a protagonist undergoes across a story under pressure and choice. It reveals hidden truth about the character and is typically completed or clarified by the climax.",
+      "aliases": [
+        "arc"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5728,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Dramatic movement",
+      "description": "The sense that a story event is actively changing the situation rather than merely describing it. Strong dramatic movement advances conflict or reveals new information in a way that alters the audience's expectations.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5668,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Dilemma",
+      "description": "A choice situation in which every available option carries a serious cost. In drama, a genuine dilemma forces the character to choose between conflicting goods or lesser evils, creating meaningful tension.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6808,
+      "match_reason": "A crisis is a decisive difficult moment, but a dilemma is specifically a choice where every option has serious cost; they overlap but are not the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Irreversible change",
+      "description": "A story outcome that cannot be undone and permanently alters the character or situation. It gives climax and ending their force by preventing a return to the previous state.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6393,
+      "match_reason": "The candidate is a climax, a story event that can produce irreversible change, but it is not the same concept as irreversible change itself.",
+      "merges": []
+    },
+    {
+      "name": "Conflict",
+      "description": "A dramatic opposition between a driving force and an opposing force that creates tension in a scene. It is identified by comparing what each side wants and checking whether those desires are directly opposed.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5668,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Scene Objective",
+      "description": "The specific goal pursued by a character or force within a scene. It is typically expressed as a purpose, such as ",
+      "aliases": [
+        "objective"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4713,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Direct Opposition",
+      "description": "A condition in which two desires or forces are in immediate contradiction with each other. It indicates genuine conflict rather than two independent aims that merely pass by each other.",
+      "aliases": [
+        "directly opposed"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6589,
+      "match_reason": "The incoming concept is the relation of two forces being directly contradictory, while candidate 0 is the broader scene-level conflict they create; candidate 1 is just one side of that conflict.",
+      "merges": []
+    },
+    {
+      "name": "Opening Value",
+      "description": "The value stake that is placed on the scene at its beginning, such as freedom versus confinement or trust versus betrayal. It is marked by whether the scene starts in a positive or negative state relative to that value.",
+      "aliases": [
+        "initial value",
+        "scene value"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5088,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Subtext",
+      "description": "The implicit meaning, intention, or emotional current beneath the literal words and actions in a scene. It often reveals what characters are really trying to do or feel without stating it openly.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4873,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Text",
+      "description": "The explicit, literal content of a scene, including the spoken words and observable actions. It provides the surface level that can be contrasted with subtext.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7222,
+      "match_reason": "Text is the literal surface content, while subtext is the implicit meaning beneath it; they are contrasting concepts, not the same one.",
+      "merges": []
+    },
+    {
+      "name": "Behavior Pattern",
+      "description": "A recurring way a character or force acts within a scene. In scene analysis, behavior patterns are examined at both the text and subtext levels to understand dramatic structure.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4823,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Beat",
+      "description": "A beat is a minimal unit of dramatic action in a scene, typically one exchange of action and reaction. It ends when a character's behavior changes in a clearly noticeable way, creating a new dramatic moment.",
+      "aliases": [
+        "scene beat",
+        "dramatic beat"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4774,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Progressive Aspect",
+      "description": "The progressive aspect is a grammatical form used to present an action as ongoing or unfolding. In dramatic analysis, it helps phrase subtext as a continuing state or intention, often with emotional coloration.",
+      "aliases": [
+        "present progressive",
+        "progressive phrase"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5328,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Value Charge",
+      "description": "Value charge is the positive or negative dramatic weight carried by a scene element or outcome. It describes whether the scene's ending leans toward gain, loss, approval, disapproval, or another meaningful polarity.",
+      "aliases": [
+        "value load",
+        "value loading"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6482,
+      "match_reason": "Value Charge is the polarity or dramatic weight of a scene element/outcome, while Opening Value is the scene’s initial value stake; related but not the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Scene Arc",
+      "description": "A scene arc is the overall line of action and reaction that unfolds within a scene from beginning to end. It gives even seemingly scattered behavior a sense of direction, purpose, and change.",
+      "aliases": [
+        "arc of a scene"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5928,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Expectation-Result Gap",
+      "description": "An expectation-result gap is the difference between what a character or audience expects to happen and what actually happens. It creates tension, surprise, or dramatic interest by making the outcome fail to match the anticipated result.",
+      "aliases": [
+        "Gap",
+        "Expectation Versus Result"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.3935,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Protagonist Desire",
+      "description": "Protagonist desire is the clear and driving goal that the main character wants to achieve. It gives the story direction by creating a forward-moving aim that motivates decisions and conflict.",
+      "aliases": [
+        "Main Character Want",
+        "Character Goal"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5521,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Thematic Argument",
+      "description": "A thematic argument is the underlying idea or claim a story expresses about human experience, values, or behavior. In drama, it is usually revealed through events, choices, and consequences rather than being stated directly in dialogue.",
+      "aliases": [
+        "Theme",
+        "Core Idea",
+        "Controlling Idea"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5516,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Character Truth",
+      "description": "Character truth is the deeper reality of who a character is under pressure, especially what their choices reveal when faced with difficult circumstances. It is distinct from superficial characterization because it emerges from action and decision.",
+      "aliases": [
+        "True Character",
+        "Inner Truth of a Character"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5761,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Exposition",
+      "description": "Exposition is narrative information that explains background, context, or circumstances needed to understand the story. It can be delivered directly, but it is often stronger when integrated into dramatic action rather than presented as pure explanation.",
+      "aliases": [
+        "Background Explanation",
+        "Story Setup"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4748,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Curiosity",
+      "description": "A cognitive-emotional drive that pushes an audience to want to know what will happen next and how a situation will turn out. In storytelling, it is stimulated by unresolved turns, questions, and delayed outcomes.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4568,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Concern",
+      "description": "An emotional response in which an audience seeks a morally or affectively central figure to invest sympathy or attention in. In storytelling, it helps keep viewers engaged by giving them someone or something to care about.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5449,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Exposition scene",
+      "description": "A scene whose main purpose is to deliver background information to the audience. In strong dramatic writing, exposition is usually embedded within conflict-driven scenes rather than presented in a standalone informational segment.",
+      "aliases": [
+        "info-dump scene"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.8302,
+      "match_reason": "The candidate is the concept of exposition itself (background information), while the incoming item is a scene used to deliver exposition; related but not the same concept.",
+      "merges": []
+    },
+    {
+      "name": "Show, don't tell",
+      "description": "A storytelling principle that recommends conveying information through dramatized action, conflict, and detail rather than explicit explanation. It aims to make exposition feel organic and engaging instead of instructional.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5725,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Activity",
+      "description": "Busy behavior that lacks meaningful goal pressure, consequence, or change in a dramatic situation. It can look active on the surface but does not produce story movement.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5398,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Repetition",
+      "description": "The recurrence of a conflict or situation without escalation or new dramatic value. In narrative design, repetition can become redundant unless it intensifies the stakes or alters the terms of the struggle.",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.47,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Tangential Conflict",
+      "description": "A conflict in which the characters' goals or desires are misaligned but not directly opposed, so they talk past one another instead of colliding head-on. Because the opposing forces do not meet squarely, the scene can feel stalled or inert rather than dramatically charged.",
+      "aliases": [
+        "Tangential confrontation",
+        "Indirect conflict"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6277,
+      "match_reason": "The candidate is the broad concept of conflict, while Tangential Conflict is a specific subtype where desires are misaligned but not directly opposed.",
+      "merges": []
+    },
+    {
+      "name": "On-the-nose Dialogue",
+      "description": "Dialogue that states a character's feelings, motives, or theme too directly instead of allowing them to emerge indirectly through behavior, implication, or subtext. It often makes a scene feel overly explicit and reduces dramatic interest because the audience is told what to think rather than asked to infer it.",
+      "aliases": [
+        "Expository dialogue",
+        "Didactic dialogue",
+        "Dramatic speechifying"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5419,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Curiosity and concern",
+      "description": "A pair of audience responses that keeps attention active during a story. Curiosity sustains interest in what will happen next, while concern creates emotional investment in the outcome and the characters.",
+      "aliases": [
+        "Interest question"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7547,
+      "match_reason": "The incoming concept names the paired responses together, while the candidates each define only one component (curiosity or concern) separately.",
+      "merges": []
+    },
+    {
+      "name": "Cheap surprise",
+      "description": "A surprise effect created by hiding information from the audience and then abruptly revealing it. It produces an immediate jolt, but it has limited value because it does not arise from a deeper understanding of the situation.",
+      "aliases": [
+        "Sudden scare"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4317,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "True surprise",
+      "description": "A surprise effect that comes from revealing a truth that was present all along but had gone unnoticed. It is stronger than a mere shock because it reorients the audience's understanding of the story world.",
+      "aliases": [
+        "Real surprise"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.758,
+      "match_reason": "True surprise is a deeper revelation of an unnoticed truth, while cheap surprise is just a hidden-information jolt; they are contrasting concepts.",
+      "merges": []
+    },
+    {
+      "name": "Coincidence",
+      "description": "An event in a story that happens by chance rather than by deliberate cause. Coincidences can be used to introduce or remove complications, but they should not be relied on to solve the central dramatic climax.",
+      "aliases": [
+        "Accident",
+        "Chance event"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.8153,
+      "match_reason": "The incoming concept is general narrative coincidence, while the candidate is the specific technique of coincidence resolving the climax; related but not the same.",
+      "merges": []
+    },
+    {
+      "name": "Comic structure",
+      "description": "The underlying organization that gives a comedy its shape and progression. Comedy depends on structure and a clear target of attack, rather than on a mere accumulation of jokes.",
+      "aliases": [
+        "Comedy structure"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4353,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Satirical target",
+      "description": "The person, type, institution, or behavior that comedy or satire aims to criticize. A strong comic work usually directs its humor toward something specific instead of presenting isolated gags without focus.",
+      "aliases": [
+        "Object of attack"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5707,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Subjective point of view",
+      "description": "A clearly defined perspective from within a scene or story that determines what is seen, known, and emphasized. Consistent point of view helps the audience follow events without confusion.",
+      "aliases": [
+        "POV",
+        "Viewpoint"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5056,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Film adaptation",
+      "description": "The process of transforming a novel or play into a film. Successful adaptation uses specifically cinematic dramatic means rather than relying mainly on narration or internal monologue.",
+      "aliases": [
+        "Adaptation"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4403,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "Melodrama",
+      "description": "A mode of storytelling in which emotional intensity is pushed beyond what the motivating situation can plausibly support. It often relies on exaggerated feeling rather than balanced dramatic development.",
+      "aliases": [
+        "Drama overcharge"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6094,
+      "match_reason": "Melodrama is an exaggerated emotional storytelling mode; dramatic movement is a story’s sense of progression or change, so they are different concepts.",
+      "merges": []
+    },
+    {
+      "name": "Plot hole",
+      "description": "A break in a story's internal logic in which an important event or outcome is not adequately supported by prior causes. Plot holes make the narrative feel inconsistent or implausible.",
+      "aliases": [
+        "Logical inconsistency"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5523,
       "match_reason": null,
       "merges": []
     }
   ],
   "relations": [
     {
-      "source": "两头夹击",
-      "target": "宏观层",
-      "relation": "包含",
+      "source": "Screenplay Analysis",
+      "target": "Macro-Level Analysis",
+      "relation": "includes",
       "weight": 1
     },
     {
-      "source": "两头夹击",
-      "target": "自上而下",
-      "relation": "对应",
+      "source": "Screenplay Analysis",
+      "target": "Micro-Level Analysis",
+      "relation": "includes",
       "weight": 1
     },
     {
-      "source": "两头夹击",
-      "target": "自下而上",
-      "relation": "对应",
+      "source": "Macro-Level Analysis",
+      "target": "Scene Analysis",
+      "relation": "precedes",
       "weight": 1
     },
     {
-      "source": "两头夹击",
-      "target": "自上而下",
-      "relation": "包含",
+      "source": "Micro-Level Analysis",
+      "target": "Scene Analysis",
+      "relation": "depends on",
       "weight": 1
     },
     {
-      "source": "两头夹击",
-      "target": "自下而上",
-      "relation": "包含",
+      "source": "Five-Step Scene Analysis",
+      "target": "Scene Analysis",
+      "relation": "is a kind of",
       "weight": 1
     },
     {
-      "source": "场景分析",
-      "target": "场景分析五步法",
-      "relation": "可采用",
+      "source": "Story",
+      "target": "Screenplay Analysis",
+      "relation": "informs",
       "weight": 1
     },
     {
-      "source": "宏观层",
-      "target": "自上而下",
-      "relation": "体现",
+      "source": "Story triangle",
+      "target": "Plot",
+      "relation": "includes",
       "weight": 1
     },
     {
-      "source": "五部分设计",
-      "target": "激励事件",
-      "relation": "包含",
+      "source": "Story triangle",
+      "target": "Scene",
+      "relation": "includes",
       "weight": 1
     },
     {
-      "source": "五部分设计",
-      "target": "进展纠葛",
-      "relation": "包含",
+      "source": "Story triangle",
+      "target": "Anti-plot",
+      "relation": "includes",
       "weight": 1
     },
     {
-      "source": "五部分设计",
-      "target": "危机",
-      "relation": "包含",
+      "source": "Inciting incident",
+      "target": "Progressive complication",
+      "relation": "leads to",
       "weight": 1
     },
     {
-      "source": "五部分设计",
-      "target": "高潮",
-      "relation": "包含",
+      "source": "Progressive complication",
+      "target": "Crisis",
+      "relation": "culminates in",
       "weight": 1
     },
     {
-      "source": "五部分设计",
-      "target": "结局",
-      "relation": "包含",
+      "source": "Crisis",
+      "target": "Climax",
+      "relation": "leads to",
       "weight": 1
     },
     {
-      "source": "主控思想",
-      "target": "高潮",
-      "relation": "通过动作证明",
+      "source": "Climax",
+      "target": "Resolution",
+      "relation": "followed by",
       "weight": 1
     },
     {
-      "source": "人物弧光",
-      "target": "危机",
-      "relation": "在压力下显现",
+      "source": "Controlling idea",
+      "target": "Climax",
+      "relation": "is demonstrated by",
       "weight": 1
     },
     {
-      "source": "人物弧光",
-      "target": "高潮",
-      "relation": "在高潮处完成改变",
+      "source": "Character arc",
+      "target": "Climax",
+      "relation": "is completed in",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "微观层",
-      "relation": "用于",
+      "source": "Dilemma",
+      "target": "Crisis",
+      "relation": "defines",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "冲突",
-      "relation": "包含",
+      "source": "Irreversible change",
+      "target": "Climax",
+      "relation": "results from",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "场景目标",
-      "relation": "使用",
+      "source": "Scene Analysis",
+      "target": "Five-Step Scene Analysis",
+      "relation": "uses",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "开篇价值",
-      "relation": "包含",
+      "source": "Five-Step Scene Analysis",
+      "target": "Conflict",
+      "relation": "includes step to determine",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "潜文本",
-      "relation": "分析",
+      "source": "Five-Step Scene Analysis",
+      "target": "Opening Value",
+      "relation": "includes step to identify",
       "weight": 1
     },
     {
-      "source": "场景分析五步法",
-      "target": "文本",
-      "relation": "分析",
+      "source": "Conflict",
+      "target": "Scene Objective",
+      "relation": "is defined by",
       "weight": 1
     },
     {
-      "source": "冲突",
-      "target": "对抗力量",
-      "relation": "涉及",
+      "source": "Conflict",
+      "target": "Opposing Force",
+      "relation": "involves",
       "weight": 1
     },
     {
-      "source": "冲突",
-      "target": "场景目标",
-      "relation": "由...构成对立",
+      "source": "Opposing Force",
+      "target": "Direct Opposition",
+      "relation": "can create",
       "weight": 1
     },
     {
-      "source": "节拍",
-      "target": "潜文本",
-      "relation": "包含",
+      "source": "Opening Value",
+      "target": "Subtext",
+      "relation": "is analyzed through",
       "weight": 1
     },
     {
-      "source": "潜文本",
-      "target": "进行时短语",
-      "relation": "通常用作",
+      "source": "Opening Value",
+      "target": "Text",
+      "relation": "is analyzed through",
       "weight": 1
     },
     {
-      "source": "价值负荷",
-      "target": "非事件",
-      "relation": "用于判断是否构成",
+      "source": "Beat",
+      "target": "Subtext",
+      "relation": "is analyzed through",
       "weight": 1
     },
     {
-      "source": "价值负荷",
-      "target": "转折",
-      "relation": "用于判断是否发生",
+      "source": "Beat",
+      "target": "Progressive Aspect",
+      "relation": "is described with",
       "weight": 1
     },
     {
-      "source": "非事件",
-      "target": "转折",
-      "relation": "与之相对",
+      "source": "Scene Turn",
+      "target": "Value Charge",
+      "relation": "depends on",
       "weight": 1
     },
     {
-      "source": "场景弧线",
-      "target": "转折",
-      "relation": "包含",
+      "source": "Non-event",
+      "target": "Value Charge",
+      "relation": "has no change in",
       "weight": 1
     },
     {
-      "source": "高潮",
-      "target": "人物真相",
-      "relation": "由选择和行动揭示",
+      "source": "Scene Turn",
+      "target": "Beat",
+      "relation": "emerges from",
       "weight": 1
     },
     {
-      "source": "戏剧化解说",
-      "target": "主控思想",
-      "relation": "用于呈现",
+      "source": "Scene Arc",
+      "target": "Scene Turn",
+      "relation": "contains",
       "weight": 1
     },
     {
-      "source": "戏剧化解说",
-      "target": "逻辑漏洞",
-      "relation": "有助于避免",
+      "source": "Beat",
+      "target": "Scene Arc",
+      "relation": "helps reveal",
       "weight": 1
     },
     {
-      "source": "对抗力量",
-      "target": "冲突逐级升级",
-      "relation": "推动",
+      "source": "Climax",
+      "target": "Coincidence Resolution",
+      "relation": "should avoid",
       "weight": 1
     },
     {
-      "source": "主人公欲望",
-      "target": "冲突逐级升级",
-      "relation": "驱动",
+      "source": "Exposition",
+      "target": "Dramatic Action",
+      "relation": "is strengthened by",
       "weight": 1
     },
     {
-      "source": "非事件",
-      "target": "行动",
-      "relation": "缺乏",
+      "source": "Thematic Argument",
+      "target": "Dramatic Action",
+      "relation": "is revealed through",
       "weight": 1
     },
     {
-      "source": "解说场景",
-      "target": "活动",
-      "relation": "不是",
+      "source": "Progressive complication",
+      "target": "Opposing Force",
+      "relation": "is driven by",
       "weight": 1
     },
     {
-      "source": "无升级较量",
-      "target": "冲突层级",
-      "relation": "停留在同一层级",
+      "source": "Protagonist Desire",
+      "target": "Progressive complication",
+      "relation": "drives",
       "weight": 1
     },
     {
-      "source": "台词点题",
-      "target": "潜文本",
-      "relation": "削弱",
+      "source": "Curiosity",
+      "target": "Concern",
+      "relation": "drives audience engagement together with",
       "weight": 1
     },
     {
-      "source": "巧合",
-      "target": "潜文本",
-      "relation": "不能替代",
+      "source": "Non-event",
+      "target": "Dramatic Action",
+      "relation": "lacks",
+      "weight": 1
+    },
+    {
+      "source": "Exposition scene",
+      "target": "Show, don't tell",
+      "relation": "is reduced by",
+      "weight": 1
+    },
+    {
+      "source": "Activity",
+      "target": "Dramatic Action",
+      "relation": "contrasts with",
+      "weight": 1
+    },
+    {
+      "source": "Repetition",
+      "target": "Non-event",
+      "relation": "can make worse",
+      "weight": 1
+    },
+    {
+      "source": "On-the-nose Dialogue",
+      "target": "Subtext",
+      "relation": "reduces",
+      "weight": 1
+    },
+    {
+      "source": "Tangential Conflict",
+      "target": "Subtext",
+      "relation": "lacks",
+      "weight": 1
+    },
+    {
+      "source": "Coincidence Resolution",
+      "target": "Subtext",
+      "relation": "can weaken",
+      "weight": 1
+    },
+    {
+      "source": "Cheap surprise",
+      "target": "True surprise",
+      "relation": "contrasts with",
+      "weight": 1
+    },
+    {
+      "source": "Coincidence",
+      "target": "Plot hole",
+      "relation": "can cause",
+      "weight": 1
+    },
+    {
+      "source": "Comic structure",
+      "target": "Satirical target",
+      "relation": "requires",
+      "weight": 1
+    },
+    {
+      "source": "Subjective point of view",
+      "target": "Film adaptation",
+      "relation": "supports",
+      "weight": 1
+    },
+    {
+      "source": "Melodrama",
+      "target": "Causal Chain",
+      "relation": "can exceed",
+      "weight": 1
+    },
+    {
+      "source": "Plot hole",
+      "target": "Causal Chain",
+      "relation": "violates",
       "weight": 1
     }
   ],
@@ -889,90 +1111,76 @@
       "chars": 271,
       "concepts": [
         {
-          "name": "自上而下",
-          "description": "一种分析方式，先从整体结构入手，再逐层检查局部是否服从整体。它强调先判断大框架是否成立，再把注意力下沉到更细的组成部分。",
+          "name": "Screenplay Analysis",
+          "description": "The systematic examination of a screenplay to determine how well its parts work together. It typically evaluates both the overall structure and the behavior of individual scenes to expose strengths and weaknesses.",
           "aliases": [
-            "宏观分析",
-            "从上到下"
+            "Script Analysis"
           ]
         },
         {
-          "name": "自下而上",
-          "description": "一种分析方式，先从局部细节入手，再把细节汇总回整体判断。它强调通过逐项检查具体部分，反推出整体结构是否可靠。",
+          "name": "Macro-Level Analysis",
+          "description": "A top-down method of evaluation that starts with the entire work and checks whether its overall structure is sound. It focuses on whether the large-scale arrangement of events and scenes is coherent and effective before looking at smaller details.",
           "aliases": [
-            "微观分析",
-            "从下到上"
+            "Top-Down Analysis"
           ]
         },
         {
-          "name": "宏观层",
-          "description": "用于把握整体骨架和结构是否成立的分析层面。它关注作品的总体组织、层次关系和是否具备支撑全局的框架。",
+          "name": "Micro-Level Analysis",
+          "description": "A bottom-up method of evaluation that examines individual scenes or local components in detail. It is used to identify specific weaknesses or functions at the level where story meaning is created moment by moment.",
           "aliases": [
-            "宏观层面"
+            "Bottom-Up Analysis"
           ]
         },
         {
-          "name": "场景分析",
-          "description": "对单个场景进行拆解和检查的分析方法，通常用于判断场景在戏剧结构中的功能和质量。它通过逐场审视事件、冲突和转折，帮助暴露结构问题。",
-          "aliases": [
-            "场景解剖"
-          ]
-        },
-        {
-          "name": "两头夹击",
-          "description": "一种同时从整体和局部推进的分析策略。它先检查大结构是否成立，再逐个场景进行拆解，从两个方向逼近剧本的问题所在。",
+          "name": "Scene Analysis",
+          "description": "The close examination of a single scene to determine how it functions within a screenplay. It asks what the scene does, how it does it, and whether its design supports the larger narrative.",
           "aliases": []
         },
         {
-          "name": "分析的两个层面",
-          "description": "把剧本分析分为整体结构和局部场景两个层次的方法框架。它强调既要看全局骨架，也要看具体场景，才能较全面地诊断剧本。",
+          "name": "Five-Step Scene Analysis",
+          "description": "A structured procedure for dissecting a scene through five successive questions or checks. It is intended to make flaws visible by forcing the analyst to test the scene against fixed criteria rather than relying on intuition.",
           "aliases": [
-            "两个层面"
+            "Five-Step Method for Scene Analysis"
           ]
         },
         {
-          "name": "场景分析五步法",
-          "description": "一种用于分析场景的分步骤方法，用来按固定程序审视场景中的关键要素。它的目的在于让场景的瑕疵在系统检查中显现出来。",
+          "name": "Story",
+          "description": "A method-oriented framework for analyzing and constructing dramatic scenes and screenplays. It emphasizes disciplined diagnosis of structure and scene function so that problems become visible through systematic questioning.",
           "aliases": [
-            "五步法"
+            "McKee's Story"
           ]
         }
       ],
       "relations": [
         {
-          "source": "分析的两个层面",
-          "target": "宏观层",
-          "relation": "包含"
+          "source": "Screenplay Analysis",
+          "target": "Macro-Level Analysis",
+          "relation": "includes"
         },
         {
-          "source": "分析的两个层面",
-          "target": "自上而下",
-          "relation": "对应"
+          "source": "Screenplay Analysis",
+          "target": "Micro-Level Analysis",
+          "relation": "includes"
         },
         {
-          "source": "分析的两个层面",
-          "target": "自下而上",
-          "relation": "对应"
+          "source": "Macro-Level Analysis",
+          "target": "Scene Analysis",
+          "relation": "precedes"
         },
         {
-          "source": "两头夹击",
-          "target": "自上而下",
-          "relation": "包含"
+          "source": "Micro-Level Analysis",
+          "target": "Scene Analysis",
+          "relation": "depends on"
         },
         {
-          "source": "两头夹击",
-          "target": "自下而上",
-          "relation": "包含"
+          "source": "Five-Step Scene Analysis",
+          "target": "Scene Analysis",
+          "relation": "is a kind of"
         },
         {
-          "source": "场景分析",
-          "target": "场景分析五步法",
-          "relation": "可采用"
-        },
-        {
-          "source": "宏观层",
-          "target": "自上而下",
-          "relation": "体现"
+          "source": "Story",
+          "target": "Screenplay Analysis",
+          "relation": "informs"
         }
       ]
     },
@@ -981,116 +1189,160 @@
       "chars": 478,
       "concepts": [
         {
-          "name": "大情节",
-          "description": "一种强调强因果推进、明显转折和结局闭合的叙事类型。它通常依靠事件之间的连锁反应推动故事前进，并在结尾形成较强的整体收束。",
+          "name": "Story triangle",
+          "description": "A storytelling framework that classifies a narrative as plot-driven, scene-driven, or anti-plot-driven. It is used to evaluate a work according to the expectations of the type of story it intends to be, rather than by a single universal standard.",
+          "aliases": [
+            "narrative triangle"
+          ]
+        },
+        {
+          "name": "Plot",
+          "description": "A narrative mode that emphasizes causal chain, closure, and externally driven events. In this mode, story evaluation focuses on whether events are tightly connected and whether the ending resolves the central situation.",
+          "aliases": [
+            "big plot"
+          ]
+        },
+        {
+          "name": "Scene",
+          "description": "A narrative mode that emphasizes moment-by-moment experience, openness, and local dramatic movement over strong causal closure. It is often judged by the quality of immediate situation and progression rather than by a fully closed ending.",
+          "aliases": [
+            "small plot"
+          ]
+        },
+        {
+          "name": "Anti-plot",
+          "description": "A narrative mode that deliberately resists conventional causal structure, closure, and straightforward resolution. It uses disruption, ambiguity, or fragmentation to challenge standard expectations of plot progression.",
+          "aliases": [
+            "counterplot"
+          ]
+        },
+        {
+          "name": "Inciting incident",
+          "description": "The event that initiates the central dramatic action of a story. It should be active and consequential enough to disturb the prior equilibrium and set the main conflict in motion.",
           "aliases": []
         },
         {
-          "name": "小情节",
-          "description": "一种更强调开放性、日常性和较弱因果链的叙事类型。它往往不追求强烈的情节闭合，而是让人物处境、情绪或关系缓慢展开。",
+          "name": "Progressive complication",
+          "description": "A sequence of developments that increases conflict, pressure, and stakes after the inciting incident. It pushes the story forward by making the central situation more difficult and revealing deeper layers of tension.",
+          "aliases": [
+            "progress"
+          ]
+        },
+        {
+          "name": "Crisis",
+          "description": "The decisive moment in a story when the protagonist must make a genuine difficult choice. It usually presents a choice between two desirable outcomes or two harmful outcomes, and it cannot be easily avoided without consequence.",
           "aliases": []
         },
         {
-          "name": "反情节",
-          "description": "一种有意削弱传统情节推进逻辑的叙事类型。它常通过断裂、反高潮、弱因果或开放式结构，抵抗标准戏剧性叙事的期待。",
+          "name": "Climax",
+          "description": "The peak of dramatic action in which the central conflict reaches its highest intensity and produces an irreversible change. It resolves the story's main pressure by forcing a decisive outcome.",
           "aliases": []
         },
         {
-          "name": "激励事件",
-          "description": "推动故事正式启动的关键事件。它改变人物原有状态，制造新的问题或目标，并为后续冲突提供起点。",
+          "name": "Resolution",
+          "description": "The narrative stage that follows the climax and shows the consequences of the decisive action. It provides the final state of the story world after the central conflict has been settled.",
           "aliases": []
         },
         {
-          "name": "进展纠葛",
-          "description": "故事在发展过程中不断加深和复杂化的冲突层次。它通过新的障碍、误解或代价升级叙事张力，并把人物推向更难的处境。",
+          "name": "Controlling idea",
+          "description": "The underlying statement about value and cause that a story expresses through its action. It links what the story says matters with why that meaning is true, and it is best demonstrated through events rather than explicit explanation.",
+          "aliases": [
+            "theme statement"
+          ]
+        },
+        {
+          "name": "Character arc",
+          "description": "The pattern of inner change a protagonist undergoes across a story under pressure and choice. It reveals hidden truth about the character and is typically completed or clarified by the climax.",
+          "aliases": [
+            "arc"
+          ]
+        },
+        {
+          "name": "Scene analysis",
+          "description": "A close-reading method that breaks a script or narrative into individual scenes and evaluates each one systematically. It is used to expose weaknesses in structure, pacing, and dramatic function at a fine-grained level.",
           "aliases": []
         },
         {
-          "name": "危机",
-          "description": "故事中需要做出关键抉择的紧要时刻。它通常把人物置于两难或多难境地，使其必须在不同代价之间做选择。",
+          "name": "Five-step analysis method",
+          "description": "A scene-level analytical procedure that examines a scene through five successive checks. It is designed to make structural flaws visible by testing the scene's purpose, movement, conflict, and payoff.",
           "aliases": []
         },
         {
-          "name": "高潮",
-          "description": "叙事中冲突达到最高点并发生决定性变化的时刻。它通常以不可逆的行动或结果完成主要矛盾的解决或转折。",
+          "name": "Dramatic movement",
+          "description": "The sense that a story event is actively changing the situation rather than merely describing it. Strong dramatic movement advances conflict or reveals new information in a way that alters the audience's expectations.",
           "aliases": []
         },
         {
-          "name": "结局",
-          "description": "故事在高潮之后对主要冲突进行收束的部分。它负责呈现结果、余波或状态变化，让叙事在结构上完成终止。",
+          "name": "Dilemma",
+          "description": "A choice situation in which every available option carries a serious cost. In drama, a genuine dilemma forces the character to choose between conflicting goods or lesser evils, creating meaningful tension.",
           "aliases": []
         },
         {
-          "name": "主控思想",
-          "description": "作品所要表达的核心价值判断及其原因说明。它概括故事想证明什么，以及为什么会得出这样的判断。",
-          "aliases": []
-        },
-        {
-          "name": "人物弧光",
-          "description": "人物在故事过程中发生的内在变化轨迹。它体现人物如何在压力、选择和行动中逐渐显露真实面貌，并在关键时刻完成转变。",
-          "aliases": []
-        },
-        {
-          "name": "五部分设计",
-          "description": "一种将故事结构拆分为五个核心环节的分析框架，包括激励事件、进展纠葛、危机、高潮和结局。它用于检查情节推进是否完整、位置是否恰当、变化是否充分。",
-          "aliases": []
-        },
-        {
-          "name": "五步分析法",
-          "description": "一种把剧本或场景拆分为五个分析步骤的细读方法。它通过逐场检验结构、冲突、信息揭示和人物变化，帮助发现文本中的问题。",
-          "aliases": []
-        },
-        {
-          "name": "微观层",
-          "description": "叙事分析中关注单个场景、局部动作和细节推进的层面。它用于从局部结构入手，观察更细小的节奏、冲突和信息释放。",
+          "name": "Irreversible change",
+          "description": "A story outcome that cannot be undone and permanently alters the character or situation. It gives climax and ending their force by preventing a return to the previous state.",
           "aliases": []
         }
       ],
       "relations": [
         {
-          "source": "五部分设计",
-          "target": "激励事件",
-          "relation": "包含"
+          "source": "Story triangle",
+          "target": "Plot",
+          "relation": "includes"
         },
         {
-          "source": "五部分设计",
-          "target": "进展纠葛",
-          "relation": "包含"
+          "source": "Story triangle",
+          "target": "Scene",
+          "relation": "includes"
         },
         {
-          "source": "五部分设计",
-          "target": "危机",
-          "relation": "包含"
+          "source": "Story triangle",
+          "target": "Anti-plot",
+          "relation": "includes"
         },
         {
-          "source": "五部分设计",
-          "target": "高潮",
-          "relation": "包含"
+          "source": "Inciting incident",
+          "target": "Progressive complication",
+          "relation": "leads to"
         },
         {
-          "source": "五部分设计",
-          "target": "结局",
-          "relation": "包含"
+          "source": "Progressive complication",
+          "target": "Crisis",
+          "relation": "culminates in"
         },
         {
-          "source": "主控思想",
-          "target": "高潮",
-          "relation": "通过动作证明"
+          "source": "Crisis",
+          "target": "Climax",
+          "relation": "leads to"
         },
         {
-          "source": "人物弧光",
-          "target": "危机",
-          "relation": "在压力下显现"
+          "source": "Climax",
+          "target": "Resolution",
+          "relation": "followed by"
         },
         {
-          "source": "人物弧光",
-          "target": "高潮",
-          "relation": "在高潮处完成改变"
+          "source": "Controlling idea",
+          "target": "Climax",
+          "relation": "is demonstrated by"
         },
         {
-          "source": "五步分析法",
-          "target": "微观层",
-          "relation": "用于"
+          "source": "Character arc",
+          "target": "Climax",
+          "relation": "is completed in"
+        },
+        {
+          "source": "Dilemma",
+          "target": "Crisis",
+          "relation": "defines"
+        },
+        {
+          "source": "Irreversible change",
+          "target": "Climax",
+          "relation": "results from"
+        },
+        {
+          "source": "Scene analysis",
+          "target": "Five-step analysis method",
+          "relation": "uses"
         }
       ]
     },
@@ -1099,85 +1351,97 @@
       "chars": 325,
       "concepts": [
         {
-          "name": "场景分析五步法",
-          "description": "一种用于拆解场景结构的写作分析方法，通过分步骤识别场景中的冲突、目标与价值变化来把握戏剧作用。它强调同时观察文本层面与潜文本层面的行动模式，以判断场景是否真正发生对抗与转折。",
+          "name": "Scene Analysis Five-Step Method",
+          "description": "A structured method for analyzing a dramatic scene by identifying its forces, objectives, and value shifts. It breaks the scene into sequential steps so the analyst can determine what is happening on the surface and beneath it.",
           "aliases": [
-            "五步法"
+            "five-step scene analysis method"
           ]
         },
         {
-          "name": "冲突",
-          "description": "在叙事场景中，指推动场景运转的双方或多方目标之间的直接对抗。冲突通常表现为不同力量各自想要达成相反目的，并通过阻挡、争夺或抵消形成戏剧张力。",
+          "name": "Conflict",
+          "description": "A dramatic opposition between a driving force and an opposing force that creates tension in a scene. It is identified by comparing what each side wants and checking whether those desires are directly opposed.",
           "aliases": []
         },
         {
-          "name": "场景目标",
-          "description": "场景中某一力量为了达成的具体目的，用“为了……”的方式加以表述。它用于明确角色或力量在该场景中的主动诉求，并与对抗力量的诉求形成对照。",
-          "aliases": []
-        },
-        {
-          "name": "对抗力量",
-          "description": "在场景中阻挡主导力量达成目标的反向力量或阻力。它同样具有自身的目的与诉求，并通过与主导力量的对立构成场景冲突。",
-          "aliases": []
-        },
-        {
-          "name": "开篇价值",
-          "description": "一个场景在开始时被置于台面的核心价值对立及其初始状态。它通常以两极对照的方式呈现，例如自由与牢笼、爱与恨、信任与背叛，并标明起始时是正向还是负向。",
-          "aliases": []
-        },
-        {
-          "name": "潜文本",
-          "description": "叙事中未被直接说出、却通过行动、语气和情境暗示出来的隐含意义层。它与表层文本共同构成场景的完整信息，常用于揭示角色真实意图和关系张力。",
+          "name": "Scene Objective",
+          "description": "The specific goal pursued by a character or force within a scene. It is typically expressed as a purpose, such as ",
           "aliases": [
-            "潜台词"
+            "objective"
           ]
         },
         {
-          "name": "文本",
-          "description": "叙事中直接呈现为字面内容的显性信息层。它包含角色说出的话、明确写出的动作和可直接观察到的场面信息。",
+          "name": "Opposing Force",
+          "description": "The force that blocks or resists the driving force in a scene. It has its own desire or aim, and its opposition helps define the scene's conflict.",
+          "aliases": [
+            "antagonistic force"
+          ]
+        },
+        {
+          "name": "Direct Opposition",
+          "description": "A condition in which two desires or forces are in immediate contradiction with each other. It indicates genuine conflict rather than two independent aims that merely pass by each other.",
+          "aliases": [
+            "directly opposed"
+          ]
+        },
+        {
+          "name": "Opening Value",
+          "description": "The value stake that is placed on the scene at its beginning, such as freedom versus confinement or trust versus betrayal. It is marked by whether the scene starts in a positive or negative state relative to that value.",
+          "aliases": [
+            "initial value",
+            "scene value"
+          ]
+        },
+        {
+          "name": "Subtext",
+          "description": "The implicit meaning, intention, or emotional current beneath the literal words and actions in a scene. It often reveals what characters are really trying to do or feel without stating it openly.",
           "aliases": []
         },
         {
-          "name": "相切",
-          "description": "一种看似有关联、实则没有真正冲突的关系状态。双方虽然并列出现或各自发声，但诉求并不直接对立，因此不足以形成有效的戏剧冲突。",
+          "name": "Text",
+          "description": "The explicit, literal content of a scene, including the spoken words and observable actions. It provides the surface level that can be contrasted with subtext.",
+          "aliases": []
+        },
+        {
+          "name": "Behavior Pattern",
+          "description": "A recurring way a character or force acts within a scene. In scene analysis, behavior patterns are examined at both the text and subtext levels to understand dramatic structure.",
           "aliases": []
         }
       ],
       "relations": [
         {
-          "source": "场景分析五步法",
-          "target": "冲突",
-          "relation": "包含"
+          "source": "Scene Analysis Five-Step Method",
+          "target": "Conflict",
+          "relation": "includes step to determine"
         },
         {
-          "source": "场景分析五步法",
-          "target": "场景目标",
-          "relation": "使用"
+          "source": "Scene Analysis Five-Step Method",
+          "target": "Opening Value",
+          "relation": "includes step to identify"
         },
         {
-          "source": "场景分析五步法",
-          "target": "开篇价值",
-          "relation": "包含"
+          "source": "Conflict",
+          "target": "Scene Objective",
+          "relation": "is defined by"
         },
         {
-          "source": "场景分析五步法",
-          "target": "潜文本",
-          "relation": "分析"
+          "source": "Conflict",
+          "target": "Opposing Force",
+          "relation": "involves"
         },
         {
-          "source": "场景分析五步法",
-          "target": "文本",
-          "relation": "分析"
+          "source": "Opposing Force",
+          "target": "Direct Opposition",
+          "relation": "can create"
         },
         {
-          "source": "冲突",
-          "target": "对抗力量",
-          "relation": "涉及"
+          "source": "Opening Value",
+          "target": "Subtext",
+          "relation": "is analyzed through"
         },
         {
-          "source": "冲突",
-          "target": "场景目标",
-          "relation": "由...构成对立"
+          "source": "Opening Value",
+          "target": "Text",
+          "relation": "is analyzed through"
         }
       ]
     },
@@ -1186,61 +1450,72 @@
       "chars": 365,
       "concepts": [
         {
-          "name": "节拍",
-          "description": "在场景分析中，节拍指一次动作与反应的交流单位。它用于把场景拆分成一连串可观察的互动变化，只有当行为发生明显变化时才进入下一个节拍。",
+          "name": "Beat",
+          "description": "A beat is a minimal unit of dramatic action in a scene, typically one exchange of action and reaction. It ends when a character's behavior changes in a clearly noticeable way, creating a new dramatic moment.",
+          "aliases": [
+            "scene beat",
+            "dramatic beat"
+          ]
+        },
+        {
+          "name": "Subtext",
+          "description": "Subtext is the implied emotional or dramatic meaning beneath a character's surface action or dialogue. It expresses what the character is really doing or feeling in a scene, rather than the literal outward behavior.",
           "aliases": []
         },
         {
-          "name": "潜文本",
-          "description": "潜文本是动作表面之下真正表达的含义，强调角色行为背后的情绪、意图或权力关系。它通常用进行时短语来呈现，使描述不止停留在字面动作，而是点出动作的本质。",
-          "aliases": []
+          "name": "Progressive Aspect",
+          "description": "The progressive aspect is a grammatical form used to present an action as ongoing or unfolding. In dramatic analysis, it helps phrase subtext as a continuing state or intention, often with emotional coloration.",
+          "aliases": [
+            "present progressive",
+            "progressive phrase"
+          ]
         },
         {
-          "name": "进行时短语",
-          "description": "进行时短语是一种用持续进行的表达方式来写出动作的语言形式。它常被用来呈现角色的潜文本动作，并带出相应的情感色彩。",
-          "aliases": []
+          "name": "Value Charge",
+          "description": "Value charge is the positive or negative dramatic weight carried by a scene element or outcome. It describes whether the scene's ending leans toward gain, loss, approval, disapproval, or another meaningful polarity.",
+          "aliases": [
+            "value load",
+            "value loading"
+          ]
         },
         {
-          "name": "价值负荷",
-          "description": "价值负荷是场景在某一时刻所承载的正面或负面价值状态。它常用于比较场景开篇与结尾的变化，从而判断场景是否发生了转折。",
-          "aliases": []
+          "name": "Scene Turn",
+          "description": "A scene turn is a change in the dramatic value of a scene from beginning to end. It marks a shift in meaning or outcome that distinguishes a developed scene from a static one.",
+          "aliases": [
+            "turn"
+          ]
         },
         {
-          "name": "非事件",
-          "description": "非事件是指场景开头与结尾的价值负荷相同，因此没有实质性变化的情况。它通常意味着场景没有产生转折，只是提供了少量信息或停留在平淡状态。",
-          "aliases": []
-        },
-        {
-          "name": "转折",
-          "description": "转折是场景中价值状态发生变化的节点，表示场面从一种负荷转换到另一种负荷。它说明场景内部出现了有效的戏剧性变化，而不是原地停留。",
+          "name": "Non-event",
+          "description": "A non-event is a scene in which the ending value is the same as the opening value, so no meaningful dramatic change occurs. It may convey information, but it lacks a true turn or transformation.",
           "aliases": []
         }
       ],
       "relations": [
         {
-          "source": "节拍",
-          "target": "潜文本",
-          "relation": "包含"
+          "source": "Beat",
+          "target": "Subtext",
+          "relation": "is analyzed through"
         },
         {
-          "source": "潜文本",
-          "target": "进行时短语",
-          "relation": "通常用作"
+          "source": "Beat",
+          "target": "Progressive Aspect",
+          "relation": "is described with"
         },
         {
-          "source": "价值负荷",
-          "target": "非事件",
-          "relation": "用于判断是否构成"
+          "source": "Scene Turn",
+          "target": "Value Charge",
+          "relation": "depends on"
         },
         {
-          "source": "价值负荷",
-          "target": "转折",
-          "relation": "用于判断是否发生"
+          "source": "Non-event",
+          "target": "Value Charge",
+          "relation": "has no change in"
         },
         {
-          "source": "非事件",
-          "target": "转折",
-          "relation": "与之相对"
+          "source": "Scene Turn",
+          "target": "Beat",
+          "relation": "emerges from"
         }
       ]
     },
@@ -1249,26 +1524,51 @@
       "chars": 185,
       "concepts": [
         {
-          "name": "转折点",
-          "description": "转折点是叙事结构中推动局势发生明显变化的关键节点，通常标志着前后状态、目标或结果的分界。它常通过事件、反应或信息揭示，使故事从铺垫阶段转入新的发展方向。",
+          "name": "Turning Point",
+          "description": "A turning point is the moment in a narrative or scene when the trajectory changes in a decisive way. It often occurs when expectation and outcome diverge sharply, causing the scene to shift into a new value or direction.",
           "aliases": [
-            "拐点"
+            "plot turning point",
+            "story turning point"
           ]
         },
         {
-          "name": "场景弧线",
-          "description": "场景弧线是一个场景内部从起始状态走向变化结果的结构轨迹，强调动作、反应与结果之间的连贯推进。它帮助场景形成明确的方向感，使表面零散的行为围绕一个目的展开。",
+          "name": "Scene Arc",
+          "description": "A scene arc is the overall line of action and reaction that unfolds within a scene from beginning to end. It gives even seemingly scattered behavior a sense of direction, purpose, and change.",
           "aliases": [
-            "场景中的弧线",
-            "弧线"
+            "arc of a scene"
+          ]
+        },
+        {
+          "name": "Scene Value Shift",
+          "description": "A scene value shift is the change in the scene's underlying dramatic value, such as from hope to disappointment or calm to conflict. It marks the point at which the scene moves toward its final emotional or narrative state.",
+          "aliases": [
+            "value shift"
+          ]
+        },
+        {
+          "name": "Beat",
+          "description": "A beat is a small unit of dramatic action or reaction within a scene. Successive beats can be tracked to reveal the scene's progression and identify where it changes direction.",
+          "aliases": [
+            "story beat",
+            "scene beat"
           ]
         }
       ],
       "relations": [
         {
-          "source": "场景弧线",
-          "target": "转折点",
-          "relation": "包含"
+          "source": "Scene Arc",
+          "target": "Turning Point",
+          "relation": "contains"
+        },
+        {
+          "source": "Turning Point",
+          "target": "Scene Value Shift",
+          "relation": "causes"
+        },
+        {
+          "source": "Beat",
+          "target": "Scene Arc",
+          "relation": "helps reveal"
         }
       ]
     },
@@ -1277,124 +1577,129 @@
       "chars": 518,
       "concepts": [
         {
-          "name": "转折",
-          "description": "情节中出现的方向性变化，使人物处境、目标、信息或关系发生明显改变。转折通常推动故事进入新的状态，并让前后结果不再相同。",
+          "name": "Turning Point",
+          "description": "A turning point is a moment in a narrative when the situation changes in a meaningful way and the story moves in a new direction. It typically marks a shift in value, outcome, or dramatic momentum rather than simply continuing the same state of affairs.",
           "aliases": [
-            "场景转折"
+            "Turn",
+            "Story Turn",
+            "Scene Turn"
           ]
         },
         {
-          "name": "鸿沟",
-          "description": "戏剧结构中期望与结果之间的落差，表示人物原本预期的事情没有按预想发生。它能制造失衡感，并推动冲突和后续变化。",
+          "name": "Expectation-Result Gap",
+          "description": "An expectation-result gap is the difference between what a character or audience expects to happen and what actually happens. It creates tension, surprise, or dramatic interest by making the outcome fail to match the anticipated result.",
           "aliases": [
-            "期望与结果的鸿沟"
+            "Gap",
+            "Expectation Versus Result"
           ]
         },
         {
-          "name": "冲突逐级升级",
-          "description": "冲突强度按照层次不断加深的结构方式。它要求对抗、压力或代价持续上升，而不是在同一水平上反复拉扯。",
+          "name": "Conflict Escalation",
+          "description": "Conflict escalation is the process by which opposition in a story becomes progressively stronger, sharper, or more consequential. Instead of repeating the same level of struggle, each new stage raises the stakes or intensity of the conflict.",
           "aliases": [
-            "逐级升级的冲突"
+            "Escalating Conflict",
+            "Rising Conflict"
           ]
         },
         {
-          "name": "对抗力量",
-          "description": "与主人公目标相抵触、阻碍其达成愿望的力量。它可以来自人物、制度、环境或内在障碍，通常需要足够强大才会形成有效戏剧张力。",
+          "name": "Antagonistic Force",
+          "description": "An antagonistic force is the opposing power that resists the protagonist's goals. It may be a person, system, circumstance, or internal obstacle, but its function is to create meaningful resistance and dramatic pressure.",
           "aliases": [
-            "反面力量",
-            "阻力"
+            "Opposing Force",
+            "Antagonist"
           ]
         },
         {
-          "name": "主人公欲望",
-          "description": "故事中主人公最核心、最明确的追求目标。它驱动人物的行动选择，并为情节提供持续的方向感。",
+          "name": "Protagonist Desire",
+          "description": "Protagonist desire is the clear and driving goal that the main character wants to achieve. It gives the story direction by creating a forward-moving aim that motivates decisions and conflict.",
           "aliases": [
-            "主人公的欲望",
-            "角色欲望"
+            "Main Character Want",
+            "Character Goal"
           ]
         },
         {
-          "name": "主控思想",
-          "description": "作品背后统摄情节与人物的核心观念或主题命题。它通常不直接靠说教表达，而是通过行动、冲突和结果被观众感知。",
+          "name": "Thematic Argument",
+          "description": "A thematic argument is the underlying idea or claim a story expresses about human experience, values, or behavior. In drama, it is usually revealed through events, choices, and consequences rather than being stated directly in dialogue.",
           "aliases": [
-            "主题思想"
+            "Theme",
+            "Core Idea",
+            "Controlling Idea"
           ]
         },
         {
-          "name": "好奇心",
-          "description": "观众对于后续结果、真相或变化的期待与追问。它是叙事张力的重要来源，能促使观众持续关注故事进展。",
+          "name": "Dramatic Action",
+          "description": "Dramatic action is purposeful behavior that reveals character and advances the story through visible deeds. It is used to express meaning, motivation, and theme in a way that can be observed rather than merely explained.",
           "aliases": [
-            "悬念性好奇心"
+            "Action",
+            "Behavior on Screen"
           ]
         },
         {
-          "name": "关切",
-          "description": "观众对人物命运、价值立场或处境产生的情感投入。它使观众不只是想知道结果，还会在情感上在意结果对谁意味着什么。",
+          "name": "Character Truth",
+          "description": "Character truth is the deeper reality of who a character is under pressure, especially what their choices reveal when faced with difficult circumstances. It is distinct from superficial characterization because it emerges from action and decision.",
           "aliases": [
-            "情感关切"
+            "True Character",
+            "Inner Truth of a Character"
           ]
         },
         {
-          "name": "人物真相",
-          "description": "人物在压力和选择中显露出来的真实面貌、价值取向与内在本质。它不是表面性格展示，而是在关键时刻通过行动被揭示出来。",
+          "name": "Climax",
+          "description": "A climax is the decisive peak of a narrative conflict where the central struggle reaches its most intense point and is resolved. It should arise from the story's established forces and choices rather than from an external trick or coincidence.",
           "aliases": [
-            "人物的真相"
+            "Story Climax",
+            "Final Confrontation"
           ]
         },
         {
-          "name": "高潮",
-          "description": "叙事中冲突最集中、结果最 निर्ण决定性的高峰段落。它通常通过人物的关键选择与行动完成，决定故事主要矛盾的最终走向。",
+          "name": "Coincidence Resolution",
+          "description": "Coincidence resolution is the use of accidental or unearned events to solve a major dramatic problem. It weakens narrative credibility because the outcome is produced by chance instead of by causal development or character choice.",
           "aliases": [
-            "戏剧高潮"
+            "Deus Ex Machina",
+            "Convenient Coincidence"
           ]
         },
         {
-          "name": "巧合",
-          "description": "由偶然事件造成的情节结果或转折。它如果被用来替代人物选择和因果推进，往往会削弱戏剧说服力。",
+          "name": "Exposition",
+          "description": "Exposition is narrative information that explains background, context, or circumstances needed to understand the story. It can be delivered directly, but it is often stronger when integrated into dramatic action rather than presented as pure explanation.",
           "aliases": [
-            "偶然性"
+            "Background Explanation",
+            "Story Setup"
           ]
         },
         {
-          "name": "戏剧化解说",
-          "description": "把背景信息、因果关系或设定内容融入戏剧行动中呈现的写法。它避免直接说明，而是让信息通过冲突、动作和场面自然显露。",
+          "name": "Causal Chain",
+          "description": "A causal chain is the sequence of connected causes and effects that makes events in a story logically understandable. When this chain breaks, the narrative can feel inconsistent, unconvincing, or hard to follow.",
           "aliases": [
-            "戏剧化说明"
-          ]
-        },
-        {
-          "name": "逻辑漏洞",
-          "description": "叙事中因果链条断裂、前提不成立或推演不一致而产生的错误。它会使情节失去可信度，让关键事件显得说不通。",
-          "aliases": [
-            "因果漏洞"
+            "Cause and Effect Chain",
+            "Causality"
           ]
         }
       ],
       "relations": [
         {
-          "source": "高潮",
-          "target": "人物真相",
-          "relation": "由选择和行动揭示"
+          "source": "Climax",
+          "target": "Coincidence Resolution",
+          "relation": "should avoid"
         },
         {
-          "source": "戏剧化解说",
-          "target": "主控思想",
-          "relation": "用于呈现"
+          "source": "Exposition",
+          "target": "Dramatic Action",
+          "relation": "is strengthened by"
         },
         {
-          "source": "戏剧化解说",
-          "target": "逻辑漏洞",
-          "relation": "有助于避免"
+          "source": "Thematic Argument",
+          "target": "Dramatic Action",
+          "relation": "is revealed through"
         },
         {
-          "source": "对抗力量",
-          "target": "冲突逐级升级",
-          "relation": "推动"
+          "source": "Conflict Escalation",
+          "target": "Antagonistic Force",
+          "relation": "is driven by"
         },
         {
-          "source": "主人公欲望",
-          "target": "冲突逐级升级",
-          "relation": "驱动"
+          "source": "Protagonist Desire",
+          "target": "Conflict Escalation",
+          "relation": "drives"
         }
       ]
     },
@@ -1403,53 +1708,73 @@
       "chars": 452,
       "concepts": [
         {
-          "name": "非事件场景",
-          "description": "一种场景类型，其中开端与结尾的价值状态相同，因而没有发生可辨认的事件变化。它在叙事上通常缺乏推进作用，往往需要删除或重写。",
+          "name": "Curiosity",
+          "description": "A cognitive-emotional drive that pushes an audience to want to know what will happen next and how a situation will turn out. In storytelling, it is stimulated by unresolved turns, questions, and delayed outcomes.",
           "aliases": []
         },
         {
-          "name": "解说场景",
-          "description": "一种场景，其存在的主要目的只是向观众交代信息。它通常不应单独承担说明功能，而应把信息拆散并嵌入有冲突的场景中自然呈现。",
+          "name": "Concern",
+          "description": "An emotional response in which an audience seeks a morally or affectively central figure to invest sympathy or attention in. In storytelling, it helps keep viewers engaged by giving them someone or something to care about.",
+          "aliases": []
+        },
+        {
+          "name": "Non-event scene",
+          "description": "A scene in which the underlying value remains unchanged from beginning to end, so no meaningful dramatic change occurs. Such scenes typically do not advance story tension and are usually candidates for removal or rewriting.",
+          "aliases": []
+        },
+        {
+          "name": "Exposition scene",
+          "description": "A scene whose main purpose is to deliver background information to the audience. In strong dramatic writing, exposition is usually embedded within conflict-driven scenes rather than presented in a standalone informational segment.",
           "aliases": [
-            "交代戏"
+            "info-dump scene"
           ]
         },
         {
-          "name": "活动",
-          "description": "人物表面上忙碌运作，但并没有形成有效的目标推进、风险变化或结果落差的行为状态。它只是填充而非故事，因此通常不具备戏剧性价值。",
+          "name": "Show, don't tell",
+          "description": "A storytelling principle that recommends conveying information through dramatized action, conflict, and detail rather than explicit explanation. It aims to make exposition feel organic and engaging instead of instructional.",
           "aliases": []
         },
         {
-          "name": "行动",
-          "description": "带着目标、预期和结果差距推进情节的行为方式。它与单纯的活动不同，能够制造冲突、变化和故事发展。",
+          "name": "Action",
+          "description": "A purposeful dramatic behavior in which a character acts toward a goal while confronting obstacles or risk. Unlike mere activity, action changes the situation or creates the possibility of change.",
           "aliases": []
         },
         {
-          "name": "冲突层级",
-          "description": "冲突在对抗强度或对立程度上的层次。若同一层级的较量没有进一步升级，内容就容易显得重复和冗余。",
+          "name": "Activity",
+          "description": "Busy behavior that lacks meaningful goal pressure, consequence, or change in a dramatic situation. It can look active on the surface but does not produce story movement.",
           "aliases": []
         },
         {
-          "name": "无升级较量",
-          "description": "一种对抗状态，其中后续冲突并未比前面的冲突更强、更复杂或更具后果。它通常意味着重复，适合合并或删除。",
+          "name": "Repetition",
+          "description": "The recurrence of a conflict or situation without escalation or new dramatic value. In narrative design, repetition can become redundant unless it intensifies the stakes or alters the terms of the struggle.",
           "aliases": []
         }
       ],
       "relations": [
         {
-          "source": "非事件场景",
-          "target": "行动",
-          "relation": "缺乏"
+          "source": "Curiosity",
+          "target": "Concern",
+          "relation": "drives audience engagement together with"
         },
         {
-          "source": "解说场景",
-          "target": "活动",
-          "relation": "不是"
+          "source": "Non-event scene",
+          "target": "Action",
+          "relation": "lacks"
         },
         {
-          "source": "无升级较量",
-          "target": "冲突层级",
-          "relation": "停留在同一层级"
+          "source": "Exposition scene",
+          "target": "Show, don't tell",
+          "relation": "is reduced by"
+        },
+        {
+          "source": "Activity",
+          "target": "Action",
+          "relation": "contrasts with"
+        },
+        {
+          "source": "Repetition",
+          "target": "Non-event scene",
+          "relation": "can make worse"
         }
       ]
     },
@@ -1458,39 +1783,52 @@
       "chars": 338,
       "concepts": [
         {
-          "name": "切线冲突",
-          "description": "人物之间的欲望和目标并不直接对撞，而是各说各话、擦肩而过式地冲突。它会让戏剧场面缺少真正的交锋，因此需要调整为更明确的正面冲突。",
-          "aliases": []
-        },
-        {
-          "name": "台词点题",
-          "description": "角色把内心想法、动机或主题直接说出来，让台词承担解释和总结的功能。它会削弱戏剧中的含蓄和张力，常需要改写成表面话语与真实意图不一致的表达方式。",
+          "name": "Tangential Conflict",
+          "description": "A conflict in which the characters' goals or desires are misaligned but not directly opposed, so they talk past one another instead of colliding head-on. Because the opposing forces do not meet squarely, the scene can feel stalled or inert rather than dramatically charged.",
           "aliases": [
-            "戏剧腔",
-            "on-the-nose"
+            "Tangential confrontation",
+            "Indirect conflict"
           ]
         },
         {
-          "name": "潜文本",
-          "description": "潜文本是台词和行动背后没有被直接说破的真实意图、情绪和关系含义。它通过“说一套、做一套”或言外之意来制造层次和张力，是戏剧表达的重要深层结构。",
+          "name": "On-the-nose Dialogue",
+          "description": "Dialogue that states a character's feelings, motives, or theme too directly instead of allowing them to emerge indirectly through behavior, implication, or subtext. It often makes a scene feel overly explicit and reduces dramatic interest because the audience is told what to think rather than asked to infer it.",
+          "aliases": [
+            "Expository dialogue",
+            "Didactic dialogue",
+            "Dramatic speechifying"
+          ]
+        },
+        {
+          "name": "Subtext",
+          "description": "The underlying meaning, motive, or emotional current that exists beneath the literal words and actions in a scene. Subtext allows characters to say one thing while meaning or doing another, creating tension, ambiguity, and dramatic depth.",
           "aliases": []
         },
         {
-          "name": "巧合",
-          "description": "巧合是情节中由偶然事件促成的转折因素，常用于启动故事或引出变化。它可以作为情节的起点，但如果用来直接解决高潮冲突，就会削弱人物选择和因果推进的力量。",
-          "aliases": []
+          "name": "Coincidental Resolution",
+          "description": "A plot resolution in which chance or coincidence solves the central problem rather than a character's decisions or actions. Coincidence can initiate events or create complications, but when it resolves the climax it can feel unearned and weaken the story's causal structure.",
+          "aliases": [
+            "Chance resolution",
+            "Coincidence ending",
+            "Deus ex machina"
+          ]
         }
       ],
       "relations": [
         {
-          "source": "台词点题",
-          "target": "潜文本",
-          "relation": "削弱"
+          "source": "On-the-nose Dialogue",
+          "target": "Subtext",
+          "relation": "reduces"
         },
         {
-          "source": "巧合",
-          "target": "潜文本",
-          "relation": "不能替代"
+          "source": "Tangential Conflict",
+          "target": "Subtext",
+          "relation": "lacks"
+        },
+        {
+          "source": "Coincidental Resolution",
+          "target": "Subtext",
+          "relation": "can weaken"
         }
       ]
     },
@@ -1499,49 +1837,117 @@
       "chars": 337,
       "concepts": [
         {
-          "name": "兴趣问题",
-          "description": "一种叙事判断标准，用来检验作品是否能同时维持观众的好奇心与关切感，并在高潮处兑现前面积累的期待。它关注的是故事推进是否持续吸引人，以及结局是否给出足够有力的回报。",
-          "aliases": []
-        },
-        {
-          "name": "惊奇问题",
-          "description": "一种叙事判断标准，用来区分“廉价惊奇”和“真惊奇”。前者依赖隐瞒信息或突然吓人，后者则通过揭示一个其实一直存在、却被忽略的真相来制造惊讶，因此更有价值。",
-          "aliases": []
-        },
-        {
-          "name": "巧合问题",
-          "description": "一种叙事判断标准，用来评估巧合在情节中的使用方式。巧合可以用来推动故事进入某种局面或帮助故事走向收束，但不能承担解决高潮矛盾的核心功能。",
-          "aliases": []
-        },
-        {
-          "name": "喜剧问题",
-          "description": "一种叙事判断标准，用来衡量喜剧是否具备结构和明确的攻击对象。它强调喜剧不能只是段子堆砌，而必须让笑点服务于整体构造与讽刺目标。",
-          "aliases": []
-        },
-        {
-          "name": "主观视点问题",
-          "description": "一种叙事判断标准，用来检查场景内部和故事整体的视点是否统一、清晰。它关注观众接收到的信息是否始终围绕某个明确的感知和理解位置展开。",
-          "aliases": []
-        },
-        {
-          "name": "改编问题",
-          "description": "一种叙事判断标准，用来衡量小说或戏剧改编是否真正转化为电影叙事。合格的改编应当主要依靠电影特有的戏剧化手段来呈现，而不是依赖旁白或独白替代影像表达。",
-          "aliases": []
-        },
-        {
-          "name": "戏剧腔问题",
-          "description": "一种叙事判断标准，用来判断情感表达是否过度夸张、超出了动机所能支撑的范围。它所说的“过载”通常意味着人物情绪和行为不够可信，因而削弱戏剧效果。",
+          "name": "Curiosity and concern",
+          "description": "A pair of audience responses that keeps attention active during a story. Curiosity sustains interest in what will happen next, while concern creates emotional investment in the outcome and the characters.",
           "aliases": [
-            "melodrama"
+            "Interest question"
           ]
         },
         {
-          "name": "漏洞问题",
-          "description": "一种叙事判断标准，用来检查故事的逻辑链是否自洽、关键因果是否成立。它关注情节中的因果关系是否站得住脚，以及是否存在破坏整体可信度的逻辑缺口。",
-          "aliases": []
+          "name": "Cheap surprise",
+          "description": "A surprise effect created by hiding information from the audience and then abruptly revealing it. It produces an immediate jolt, but it has limited value because it does not arise from a deeper understanding of the situation.",
+          "aliases": [
+            "Sudden scare"
+          ]
+        },
+        {
+          "name": "True surprise",
+          "description": "A surprise effect that comes from revealing a truth that was present all along but had gone unnoticed. It is stronger than a mere shock because it reorients the audience's understanding of the story world.",
+          "aliases": [
+            "Real surprise"
+          ]
+        },
+        {
+          "name": "Coincidence",
+          "description": "An event in a story that happens by chance rather than by deliberate cause. Coincidences can be used to introduce or remove complications, but they should not be relied on to solve the central dramatic climax.",
+          "aliases": [
+            "Accident",
+            "Chance event"
+          ]
+        },
+        {
+          "name": "Comic structure",
+          "description": "The underlying organization that gives a comedy its shape and progression. Comedy depends on structure and a clear target of attack, rather than on a mere accumulation of jokes.",
+          "aliases": [
+            "Comedy structure"
+          ]
+        },
+        {
+          "name": "Satirical target",
+          "description": "The person, type, institution, or behavior that comedy or satire aims to criticize. A strong comic work usually directs its humor toward something specific instead of presenting isolated gags without focus.",
+          "aliases": [
+            "Object of attack"
+          ]
+        },
+        {
+          "name": "Subjective point of view",
+          "description": "A clearly defined perspective from within a scene or story that determines what is seen, known, and emphasized. Consistent point of view helps the audience follow events without confusion.",
+          "aliases": [
+            "POV",
+            "Viewpoint"
+          ]
+        },
+        {
+          "name": "Film adaptation",
+          "description": "The process of transforming a novel or play into a film. Successful adaptation uses specifically cinematic dramatic means rather than relying mainly on narration or internal monologue.",
+          "aliases": [
+            "Adaptation"
+          ]
+        },
+        {
+          "name": "Melodrama",
+          "description": "A mode of storytelling in which emotional intensity is pushed beyond what the motivating situation can plausibly support. It often relies on exaggerated feeling rather than balanced dramatic development.",
+          "aliases": [
+            "Drama overcharge"
+          ]
+        },
+        {
+          "name": "Causal logic",
+          "description": "The network of cause-and-effect relationships that makes a story coherent. When causal logic is sound, key events follow intelligibly from earlier actions and conditions.",
+          "aliases": [
+            "Logic chain"
+          ]
+        },
+        {
+          "name": "Plot hole",
+          "description": "A break in a story's internal logic in which an important event or outcome is not adequately supported by prior causes. Plot holes make the narrative feel inconsistent or implausible.",
+          "aliases": [
+            "Logical inconsistency"
+          ]
         }
       ],
-      "relations": []
+      "relations": [
+        {
+          "source": "Cheap surprise",
+          "target": "True surprise",
+          "relation": "contrasts with"
+        },
+        {
+          "source": "Coincidence",
+          "target": "Plot hole",
+          "relation": "can cause"
+        },
+        {
+          "source": "Comic structure",
+          "target": "Satirical target",
+          "relation": "requires"
+        },
+        {
+          "source": "Subjective point of view",
+          "target": "Film adaptation",
+          "relation": "supports"
+        },
+        {
+          "source": "Melodrama",
+          "target": "Causal logic",
+          "relation": "can exceed"
+        },
+        {
+          "source": "Plot hole",
+          "target": "Causal logic",
+          "relation": "violates"
+        }
+      ]
     }
   ]
 }

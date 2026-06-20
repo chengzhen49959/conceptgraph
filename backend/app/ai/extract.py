@@ -28,11 +28,12 @@ class ChunkExtraction(BaseModel):
 
 _INSTRUCTIONS = """You extract knowledge from ONE passage of a document for a knowledge graph.
 
-LANGUAGE — first identify the passage's primary language and write EVERY `name`,
-`alias`, and `description` in THAT language. Never translate, transliterate, or
-switch language: an English passage yields English names, a Chinese passage
-yields Chinese names. The examples below are illustrative only — ignore whatever
-language they happen to use.
+LANGUAGE — write EVERY `name`, `alias`, and `description` in English, whatever
+language the passage is in. Translate every non-English term to its standard
+English name (a passage in Chinese still yields English names such as
+"self-attention"); if a term has no established English name, transliterate it
+into the Latin alphabet. The output must contain no CJK or other non-English
+characters.
 
 CONCEPTS — every concept that passes the inclusion test below. Do NOT cap the
 count; return as many as the passage substantively covers (a dense passage has

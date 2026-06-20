@@ -68,7 +68,8 @@ self-contained, written like a glossary entry, with no reference to any specific
 source or document.
 
 Rules:
-- Write in the SAME language as the input descriptions; never translate.
+- Write the description in English, whatever language the inputs are in;
+  translate any non-English text to English.
 - If the new description adds material information (a mechanism, purpose,
   distinction, or precision the current one lacks), integrate it.
 - If it adds nothing material, return the current description verbatim.
@@ -110,8 +111,8 @@ Same concept (return its index): synonyms, acronym vs spelled-out form,
 translations, or rewordings of one idea — a reader would keep a single entry.
 Different (return -1): merely related or sibling concepts — a general technique vs
 a specific variant, a method vs a component it uses, a problem vs its solution, and
-especially OPPOSITES / contrasting pairs (e.g. top-down vs bottom-up, 自上而下 vs
-自下而上). When unsure, return -1.
+especially OPPOSITES / contrasting pairs (e.g. top-down vs bottom-up). When
+unsure, return -1.
 
 Judge by what the concepts DENOTE, not by how similar their wording is. Give one
 short reason."""
