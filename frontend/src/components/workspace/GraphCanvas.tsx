@@ -317,6 +317,19 @@ export function GraphCanvas({
     )
   }, [Comp, graphData])
 
+  // Reveal a selected concept the overview has collapsed into its cluster
+  // super-node: drill into that cluster so the concept actually renders (then it
+  // can highlight + centre). Covers ⌘K search and the sidebar concept list alike,
+  // since both just set selectedId. Unclustered concepts already show as dots.
+  useEffect(() => {
+    if (!selectedId) return
+    const n = data.nodes.find((x) => x.id === selectedId)
+    if (!n || !n.cluster_id) return // unclustered → already on screen
+    if (focusedClusterId === n.cluster_id) return // already drilled in
+    if (renderedIdOf(selectedId) !== selectedId) onFocusCluster(n.cluster_id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, data, focusedClusterId])
+
   // Centre the camera on the selected node (e.g. picked from search).
   useEffect(() => {
     if (!selectedId) return
@@ -516,7 +529,20 @@ export function GraphCanvas({
             focusedClusterId != null ? onFocusCluster(null) : onSelectId(null)
           }
           cooldownTicks={120}
-          onEngineStop={() => fgRef.current?.zoomToFit(400, 70)}
+          onEngineStop={() => {
+            // After a drill-in reveals the selected concept, centre on it rather
+            // than fitting the whole cluster (its coords are ready now the sim
+            // settled). No selection → frame everything as before.
+            const sel =
+              selectedId &&
+              graphData.nodes.find((n) => n.id === selectedId)
+            if (sel && sel.x != null && sel.y != null) {
+              fgRef.current?.centerAt(sel.x, sel.y, 600)
+              fgRef.current?.zoom(3, 600)
+            } else {
+              fgRef.current?.zoomToFit(400, 70)
+            }
+          }}
           linkColor={(l: FGLink) => {
             const lit = linkLit(l)
             if (lit == null) return c.link
