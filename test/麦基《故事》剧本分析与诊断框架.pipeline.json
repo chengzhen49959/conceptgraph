@@ -1,0 +1,1547 @@
+{
+  "input": "/Users/gongchengzhen/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_ydzi8hbd44h222_70fc/msg/file/2026-06/麦基《故事》剧本分析与诊断框架.md",
+  "settings": {
+    "extract_model": "gpt-5.4-mini",
+    "judge_model": "gpt-5.4-mini",
+    "embed_model": "text-embedding-3-small",
+    "block_distance": 0.4,
+    "block_top_k": 5
+  },
+  "counts": {
+    "chars": 3286,
+    "chunks": 9,
+    "raw_concepts": 67,
+    "distinct_names": 59,
+    "final_concepts": 53,
+    "raw_relations": 39,
+    "final_relations": 39,
+    "new": 53,
+    "exact": 0,
+    "match_call": 28,
+    "matched": 6,
+    "none": 22
+  },
+  "quality": {
+    "glossary_leaks": [],
+    "sentence_punct_names": [],
+    "forbidden_person_names": []
+  },
+  "concepts": [
+    {
+      "name": "两头夹击",
+      "description": "两头夹击是一种把剧本分析分为整体结构与局部场景两个层次的策略。它先检视整体骨架是否成立，再逐个场景拆解细节，并从全局与局部两个方向相互印证，从而更全面地定位问题所在。",
+      "aliases": [
+        "分析的两个层面"
+      ],
+      "mentions": 2,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6913,
+      "match_reason": "“两头夹击”指同时从整体和局部两端推进的混合策略，不等同于单纯的自上而下、自下而上或仅场景分析。",
+      "merges": [
+        {
+          "name": "分析的两个层面",
+          "sim": 0.7232,
+          "reason": "都指向从整体结构与局部场景两个层面来分析剧本的框架/策略。"
+        }
+      ]
+    },
+    {
+      "name": "场景分析五步法",
+      "description": "场景分析五步法是一种用于分析场景的分步骤方法，强调将剧本或场景按固定流程拆分并逐步审视。它通过检查结构、冲突、信息揭示及人物变化等关键要素，帮助在系统检验中更容易发现文本或设定中的问题与瑕疵。",
+      "aliases": [
+        "五步法",
+        "五步分析法"
+      ],
+      "mentions": 2,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7684,
+      "match_reason": "“场景分析五步法”是场景分析的特定分步骤版本，而候选项“场景分析”是更一般的分析方法，不是同一概念。",
+      "merges": [
+        {
+          "name": "五步分析法",
+          "sim": 0.7189,
+          "reason": "两者都是按五个步骤逐场检查剧本/场景的分析方法，目的都是发现文本问题。"
+        }
+      ]
+    },
+    {
+      "name": "相切",
+      "description": "相切是一种看似有关联、实则缺乏直接冲突的关系状态。双方各自表达诉求，欲望与目标并不正面对撞，只是擦肩而过或各说各话，因此难以形成有效的戏剧交锋；相应地，画面往往需要通过更明确的正面冲突来强化张力。",
+      "aliases": [
+        "切线冲突"
+      ],
+      "mentions": 2,
+      "decided_by": "new",
+      "nearest_sim": 0.5841,
+      "match_reason": null,
+      "merges": [
+        {
+          "name": "切线冲突",
+          "sim": 0.6427,
+          "reason": "“切线冲突”指双方并未正面交锋、而是擦肩而过式的冲突；候选[1]“相切”正是这种看似有关联但没有真正对撞的关系状态。"
+        }
+      ]
+    },
+    {
+      "name": "非事件",
+      "description": "非事件是指场景开头与结尾的价值状态相同，因而没有可辨认的事件变化或实质性推进。此类场景在叙事中通常缺乏转折与推动作用，常显得停留或平淡，甚至可能需要删除或重写以提升有效性。",
+      "aliases": [
+        "非事件场景"
+      ],
+      "mentions": 2,
+      "decided_by": "new",
+      "nearest_sim": 0.5563,
+      "match_reason": null,
+      "merges": [
+        {
+          "name": "非事件场景",
+          "sim": 0.799,
+          "reason": "两者都指开头与结尾价值状态相同、没有实质变化的场景/情况，属于同一概念。"
+        }
+      ]
+    },
+    {
+      "name": "转折",
+      "description": "转折是叙事或场景中推动局势发生明显变化的关键节点，标志着前后价值状态、目标或结果的分界。它通过事件、反应或信息揭示，引发有效的戏剧性改变，使故事或发展方向从铺垫阶段转入新的阶段。",
+      "aliases": [
+        "转折点"
+      ],
+      "mentions": 2,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6737,
+      "match_reason": "“转折”指价值状态发生变化的节点；“价值负荷”指场景所承载的价值状态本身，不是变化点。",
+      "merges": [
+        {
+          "name": "转折点",
+          "sim": 0.7594,
+          "reason": "“转折点”就是叙事中发生明显变化的关键节点，与候选“转折”所指的戏剧性变化节点同一概念。"
+        }
+      ]
+    },
+    {
+      "name": "逻辑漏洞",
+      "description": "逻辑漏洞指叙事中因果链条断裂、前提不成立或推演不一致等问题，导致关键事件缺乏合理因果支撑。它等同于一种叙事判断标准，用来检验情节的逻辑链是否自洽、关键因果是否成立，从而识别会破坏整体可信度的逻辑缺口。",
+      "aliases": [
+        "因果漏洞",
+        "漏洞问题"
+      ],
+      "mentions": 2,
+      "decided_by": "new",
+      "nearest_sim": 0.5653,
+      "match_reason": null,
+      "merges": [
+        {
+          "name": "漏洞问题",
+          "sim": 0.6959,
+          "reason": "两者都指叙事中的逻辑/因果缺口，导致情节不自洽、可信度下降，概念一致。"
+        }
+      ]
+    },
+    {
+      "name": "自上而下",
+      "description": "一种分析方式，先从整体结构入手，再逐层检查局部是否服从整体。它强调先判断大框架是否成立，再把注意力下沉到更细的组成部分。",
+      "aliases": [
+        "宏观分析",
+        "从上到下"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": null,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "自下而上",
+      "description": "一种分析方式，先从局部细节入手，再把细节汇总回整体判断。它强调通过逐项检查具体部分，反推出整体结构是否可靠。",
+      "aliases": [
+        "微观分析",
+        "从下到上"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.8649,
+      "match_reason": "“自下而上”是从局部到整体；候选“自上而下”是从整体到局部，二者是相反的分析方式，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "宏观层",
+      "description": "用于把握整体骨架和结构是否成立的分析层面。它关注作品的总体组织、层次关系和是否具备支撑全局的框架。",
+      "aliases": [
+        "宏观层面"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6178,
+      "match_reason": "“宏观层”是分析的层面/视角，而“自上而下”是从整体到局部的分析方法，概念不完全相同。",
+      "merges": []
+    },
+    {
+      "name": "场景分析",
+      "description": "对单个场景进行拆解和检查的分析方法，通常用于判断场景在戏剧结构中的功能和质量。它通过逐场审视事件、冲突和转折，帮助暴露结构问题。",
+      "aliases": [
+        "场景解剖"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5015,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "大情节",
+      "description": "一种强调强因果推进、明显转折和结局闭合的叙事类型。它通常依靠事件之间的连锁反应推动故事前进，并在结尾形成较强的整体收束。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4588,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "小情节",
+      "description": "一种更强调开放性、日常性和较弱因果链的叙事类型。它往往不追求强烈的情节闭合，而是让人物处境、情绪或关系缓慢展开。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6563,
+      "match_reason": "“小情节”强调开放性、弱因果和日常展开；“大情节”则强调强因果推进、明显转折和结局闭合，二者是对立类型，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "反情节",
+      "description": "一种有意削弱传统情节推进逻辑的叙事类型。它常通过断裂、反高潮、弱因果或开放式结构，抵抗标准戏剧性叙事的期待。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6606,
+      "match_reason": "“反情节”是有意反叙事、削弱情节推进逻辑的类型；“小情节”只是更弱因果、偏开放的叙事类型，二者相关但不等同。",
+      "merges": []
+    },
+    {
+      "name": "激励事件",
+      "description": "推动故事正式启动的关键事件。它改变人物原有状态，制造新的问题或目标，并为后续冲突提供起点。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5098,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "进展纠葛",
+      "description": "故事在发展过程中不断加深和复杂化的冲突层次。它通过新的障碍、误解或代价升级叙事张力，并把人物推向更难的处境。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5673,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "危机",
+      "description": "故事中需要做出关键抉择的紧要时刻。它通常把人物置于两难或多难境地，使其必须在不同代价之间做选择。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5806,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "高潮",
+      "description": "叙事中冲突达到最高点并发生决定性变化的时刻。它通常以不可逆的行动或结果完成主要矛盾的解决或转折。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4928,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "结局",
+      "description": "故事在高潮之后对主要冲突进行收束的部分。它负责呈现结果、余波或状态变化，让叙事在结构上完成终止。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.7338,
+      "match_reason": "“结局”指故事高潮后的收束部分；“大情节”是强调强因果推进和闭合的叙事类型，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "主控思想",
+      "description": "作品所要表达的核心价值判断及其原因说明。它概括故事想证明什么，以及为什么会得出这样的判断。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4972,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "人物弧光",
+      "description": "人物在故事过程中发生的内在变化轨迹。它体现人物如何在压力、选择和行动中逐渐显露真实面貌，并在关键时刻完成转变。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.531,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "五部分设计",
+      "description": "一种将故事结构拆分为五个核心环节的分析框架，包括激励事件、进展纠葛、危机、高潮和结局。它用于检查情节推进是否完整、位置是否恰当、变化是否充分。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.596,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "微观层",
+      "description": "叙事分析中关注单个场景、局部动作和细节推进的层面。它用于从局部结构入手，观察更细小的节奏、冲突和信息释放。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6088,
+      "match_reason": "“微观层”是叙事分析的一个局部观察层面，不等同于“场景分析”这一具体方法；候选[1]还是其对立面“宏观层”。",
+      "merges": []
+    },
+    {
+      "name": "冲突",
+      "description": "在叙事场景中，指推动场景运转的双方或多方目标之间的直接对抗。冲突通常表现为不同力量各自想要达成相反目的，并通过阻挡、争夺或抵消形成戏剧张力。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5254,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "场景目标",
+      "description": "场景中某一力量为了达成的具体目的，用“为了……”的方式加以表述。它用于明确角色或力量在该场景中的主动诉求，并与对抗力量的诉求形成对照。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5239,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "对抗力量",
+      "description": "在场景中阻挡主导力量达成目标的反向力量或阻力。它同样具有自身的目的与诉求，并通过与主导力量的对立构成场景冲突。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6851,
+      "match_reason": "“对抗力量”指的是冲突中的一方力量；“冲突”是双方或多方之间的对立关系本身，概念不相同。",
+      "merges": []
+    },
+    {
+      "name": "开篇价值",
+      "description": "一个场景在开始时被置于台面的核心价值对立及其初始状态。它通常以两极对照的方式呈现，例如自由与牢笼、爱与恨、信任与背叛，并标明起始时是正向还是负向。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5161,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "潜文本",
+      "description": "叙事中未被直接说出、却通过行动、语气和情境暗示出来的隐含意义层。它与表层文本共同构成场景的完整信息，常用于揭示角色真实意图和关系张力。",
+      "aliases": [
+        "潜台词"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5642,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "文本",
+      "description": "叙事中直接呈现为字面内容的显性信息层。它包含角色说出的话、明确写出的动作和可直接观察到的场面信息。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6924,
+      "match_reason": "“文本”指字面显性的表层信息；“潜文本”指隐含的意义层，二者是相对概念而非同一概念。",
+      "merges": []
+    },
+    {
+      "name": "节拍",
+      "description": "在场景分析中，节拍指一次动作与反应的交流单位。它用于把场景拆分成一连串可观察的互动变化，只有当行为发生明显变化时才进入下一个节拍。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5316,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "进行时短语",
+      "description": "进行时短语是一种用持续进行的表达方式来写出动作的语言形式。它常被用来呈现角色的潜文本动作，并带出相应的情感色彩。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.442,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "价值负荷",
+      "description": "价值负荷是场景在某一时刻所承载的正面或负面价值状态。它常用于比较场景开篇与结尾的变化，从而判断场景是否发生了转折。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6603,
+      "match_reason": "“价值负荷”是场景任一时刻的价值状态，较为泛化；“开篇价值”特指场景开始时的初始价值对立及其状态，范围更窄，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "场景弧线",
+      "description": "场景弧线是一个场景内部从起始状态走向变化结果的结构轨迹，强调动作、反应与结果之间的连贯推进。它帮助场景形成明确的方向感，使表面零散的行为围绕一个目的展开。",
+      "aliases": [
+        "场景中的弧线",
+        "弧线"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6325,
+      "match_reason": "“场景弧线”指场景内部从起始到结果的推进轨迹；“场景分析”是对场景进行拆解检查的方法，二者不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "鸿沟",
+      "description": "戏剧结构中期望与结果之间的落差，表示人物原本预期的事情没有按预想发生。它能制造失衡感，并推动冲突和后续变化。",
+      "aliases": [
+        "期望与结果的鸿沟"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6133,
+      "match_reason": "“鸿沟”指期望与结果之间的落差；“反情节”是削弱传统情节推进的叙事类型，概念不同。",
+      "merges": []
+    },
+    {
+      "name": "冲突逐级升级",
+      "description": "冲突强度按照层次不断加深的结构方式。它要求对抗、压力或代价持续上升，而不是在同一水平上反复拉扯。",
+      "aliases": [
+        "逐级升级的冲突"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5416,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "主人公欲望",
+      "description": "故事中主人公最核心、最明确的追求目标。它驱动人物的行动选择，并为情节提供持续的方向感。",
+      "aliases": [
+        "主人公的欲望",
+        "角色欲望"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4789,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "好奇心",
+      "description": "观众对于后续结果、真相或变化的期待与追问。它是叙事张力的重要来源，能促使观众持续关注故事进展。",
+      "aliases": [
+        "悬念性好奇心"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4412,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "关切",
+      "description": "观众对人物命运、价值立场或处境产生的情感投入。它使观众不只是想知道结果，还会在情感上在意结果对谁意味着什么。",
+      "aliases": [
+        "情感关切"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6426,
+      "match_reason": "“关切”强调对人物命运和处境的情感投入；“好奇心”只是对后续结果或真相的期待追问，概念不同。",
+      "merges": []
+    },
+    {
+      "name": "人物真相",
+      "description": "人物在压力和选择中显露出来的真实面貌、价值取向与内在本质。它不是表面性格展示，而是在关键时刻通过行动被揭示出来。",
+      "aliases": [
+        "人物的真相"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6936,
+      "match_reason": "“人物真相”强调人物在关键时刻显露的真实本质；“人物弧光”是人物在故事中的内在变化轨迹，属于不同概念。",
+      "merges": []
+    },
+    {
+      "name": "巧合",
+      "description": "由偶然事件造成的情节结果或转折。它如果被用来替代人物选择和因果推进，往往会削弱戏剧说服力。",
+      "aliases": [
+        "偶然性"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5568,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "戏剧化解说",
+      "description": "把背景信息、因果关系或设定内容融入戏剧行动中呈现的写法。它避免直接说明，而是让信息通过冲突、动作和场面自然显露。",
+      "aliases": [
+        "戏剧化说明"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6058,
+      "match_reason": "候选项描述的是直接显性呈现的信息层；‘戏剧化解说’则是把背景/设定信息融入行动中间接呈现，两者不相同。",
+      "merges": []
+    },
+    {
+      "name": "解说场景",
+      "description": "一种场景，其存在的主要目的只是向观众交代信息。它通常不应单独承担说明功能，而应把信息拆散并嵌入有冲突的场景中自然呈现。",
+      "aliases": [
+        "交代戏"
+      ],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6538,
+      "match_reason": "“解说场景”指主要用于交代信息的场景；候选[1]是相反的“戏剧化解说”，强调把信息融入冲突中呈现，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "活动",
+      "description": "人物表面上忙碌运作，但并没有形成有效的目标推进、风险变化或结果落差的行为状态。它只是填充而非故事，因此通常不具备戏剧性价值。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5646,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "行动",
+      "description": "带着目标、预期和结果差距推进情节的行为方式。它与单纯的活动不同，能够制造冲突、变化和故事发展。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.584,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "冲突层级",
+      "description": "冲突在对抗强度或对立程度上的层次。若同一层级的较量没有进一步升级，内容就容易显得重复和冗余。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.757,
+      "match_reason": "“冲突层级”指冲突强度所处的层次；“冲突逐级升级”指冲突强度不断加深的推进方式，二者不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "无升级较量",
+      "description": "一种对抗状态，其中后续冲突并未比前面的冲突更强、更复杂或更具后果。它通常意味着重复，适合合并或删除。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6559,
+      "match_reason": "“无升级较量”表示冲突没有逐步加深；候选[0]是“冲突逐级升级”的相反概念，[1]只是冲突层级的描述，不是同一概念。",
+      "merges": []
+    },
+    {
+      "name": "台词点题",
+      "description": "角色把内心想法、动机或主题直接说出来，让台词承担解释和总结的功能。它会削弱戏剧中的含蓄和张力，常需要改写成表面话语与真实意图不一致的表达方式。",
+      "aliases": [
+        "戏剧腔",
+        "on-the-nose"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5606,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "兴趣问题",
+      "description": "一种叙事判断标准，用来检验作品是否能同时维持观众的好奇心与关切感，并在高潮处兑现前面积累的期待。它关注的是故事推进是否持续吸引人，以及结局是否给出足够有力的回报。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.6527,
+      "match_reason": "该概念是叙事评价标准，强调同时维持好奇心与关切并在高潮兑现期待；候选项分别只是‘好奇心’和‘关切’本身，不是这一标准。",
+      "merges": []
+    },
+    {
+      "name": "惊奇问题",
+      "description": "一种叙事判断标准，用来区分“廉价惊奇”和“真惊奇”。前者依赖隐瞒信息或突然吓人，后者则通过揭示一个其实一直存在、却被忽略的真相来制造惊讶，因此更有价值。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.4595,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "巧合问题",
+      "description": "一种叙事判断标准，用来评估巧合在情节中的使用方式。巧合可以用来推动故事进入某种局面或帮助故事走向收束，但不能承担解决高潮矛盾的核心功能。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "judged-distinct",
+      "nearest_sim": 0.711,
+      "match_reason": "“巧合问题”是对情节中巧合使用方式的叙事判断标准；候选“巧合”是具体的偶然事件或情节转折，本身不是该标准。",
+      "merges": []
+    },
+    {
+      "name": "喜剧问题",
+      "description": "一种叙事判断标准，用来衡量喜剧是否具备结构和明确的攻击对象。它强调喜剧不能只是段子堆砌，而必须让笑点服务于整体构造与讽刺目标。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5925,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "主观视点问题",
+      "description": "一种叙事判断标准，用来检查场景内部和故事整体的视点是否统一、清晰。它关注观众接收到的信息是否始终围绕某个明确的感知和理解位置展开。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5615,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "改编问题",
+      "description": "一种叙事判断标准，用来衡量小说或戏剧改编是否真正转化为电影叙事。合格的改编应当主要依靠电影特有的戏剧化手段来呈现，而不是依赖旁白或独白替代影像表达。",
+      "aliases": [],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.5091,
+      "match_reason": null,
+      "merges": []
+    },
+    {
+      "name": "戏剧腔问题",
+      "description": "一种叙事判断标准，用来判断情感表达是否过度夸张、超出了动机所能支撑的范围。它所说的“过载”通常意味着人物情绪和行为不够可信，因而削弱戏剧效果。",
+      "aliases": [
+        "melodrama"
+      ],
+      "mentions": 1,
+      "decided_by": "new",
+      "nearest_sim": 0.558,
+      "match_reason": null,
+      "merges": []
+    }
+  ],
+  "relations": [
+    {
+      "source": "两头夹击",
+      "target": "宏观层",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "两头夹击",
+      "target": "自上而下",
+      "relation": "对应",
+      "weight": 1
+    },
+    {
+      "source": "两头夹击",
+      "target": "自下而上",
+      "relation": "对应",
+      "weight": 1
+    },
+    {
+      "source": "两头夹击",
+      "target": "自上而下",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "两头夹击",
+      "target": "自下而上",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "场景分析",
+      "target": "场景分析五步法",
+      "relation": "可采用",
+      "weight": 1
+    },
+    {
+      "source": "宏观层",
+      "target": "自上而下",
+      "relation": "体现",
+      "weight": 1
+    },
+    {
+      "source": "五部分设计",
+      "target": "激励事件",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "五部分设计",
+      "target": "进展纠葛",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "五部分设计",
+      "target": "危机",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "五部分设计",
+      "target": "高潮",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "五部分设计",
+      "target": "结局",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "主控思想",
+      "target": "高潮",
+      "relation": "通过动作证明",
+      "weight": 1
+    },
+    {
+      "source": "人物弧光",
+      "target": "危机",
+      "relation": "在压力下显现",
+      "weight": 1
+    },
+    {
+      "source": "人物弧光",
+      "target": "高潮",
+      "relation": "在高潮处完成改变",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "微观层",
+      "relation": "用于",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "冲突",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "场景目标",
+      "relation": "使用",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "开篇价值",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "潜文本",
+      "relation": "分析",
+      "weight": 1
+    },
+    {
+      "source": "场景分析五步法",
+      "target": "文本",
+      "relation": "分析",
+      "weight": 1
+    },
+    {
+      "source": "冲突",
+      "target": "对抗力量",
+      "relation": "涉及",
+      "weight": 1
+    },
+    {
+      "source": "冲突",
+      "target": "场景目标",
+      "relation": "由...构成对立",
+      "weight": 1
+    },
+    {
+      "source": "节拍",
+      "target": "潜文本",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "潜文本",
+      "target": "进行时短语",
+      "relation": "通常用作",
+      "weight": 1
+    },
+    {
+      "source": "价值负荷",
+      "target": "非事件",
+      "relation": "用于判断是否构成",
+      "weight": 1
+    },
+    {
+      "source": "价值负荷",
+      "target": "转折",
+      "relation": "用于判断是否发生",
+      "weight": 1
+    },
+    {
+      "source": "非事件",
+      "target": "转折",
+      "relation": "与之相对",
+      "weight": 1
+    },
+    {
+      "source": "场景弧线",
+      "target": "转折",
+      "relation": "包含",
+      "weight": 1
+    },
+    {
+      "source": "高潮",
+      "target": "人物真相",
+      "relation": "由选择和行动揭示",
+      "weight": 1
+    },
+    {
+      "source": "戏剧化解说",
+      "target": "主控思想",
+      "relation": "用于呈现",
+      "weight": 1
+    },
+    {
+      "source": "戏剧化解说",
+      "target": "逻辑漏洞",
+      "relation": "有助于避免",
+      "weight": 1
+    },
+    {
+      "source": "对抗力量",
+      "target": "冲突逐级升级",
+      "relation": "推动",
+      "weight": 1
+    },
+    {
+      "source": "主人公欲望",
+      "target": "冲突逐级升级",
+      "relation": "驱动",
+      "weight": 1
+    },
+    {
+      "source": "非事件",
+      "target": "行动",
+      "relation": "缺乏",
+      "weight": 1
+    },
+    {
+      "source": "解说场景",
+      "target": "活动",
+      "relation": "不是",
+      "weight": 1
+    },
+    {
+      "source": "无升级较量",
+      "target": "冲突层级",
+      "relation": "停留在同一层级",
+      "weight": 1
+    },
+    {
+      "source": "台词点题",
+      "target": "潜文本",
+      "relation": "削弱",
+      "weight": 1
+    },
+    {
+      "source": "巧合",
+      "target": "潜文本",
+      "relation": "不能替代",
+      "weight": 1
+    }
+  ],
+  "raw_extractions": [
+    {
+      "chunk": 0,
+      "chars": 271,
+      "concepts": [
+        {
+          "name": "自上而下",
+          "description": "一种分析方式，先从整体结构入手，再逐层检查局部是否服从整体。它强调先判断大框架是否成立，再把注意力下沉到更细的组成部分。",
+          "aliases": [
+            "宏观分析",
+            "从上到下"
+          ]
+        },
+        {
+          "name": "自下而上",
+          "description": "一种分析方式，先从局部细节入手，再把细节汇总回整体判断。它强调通过逐项检查具体部分，反推出整体结构是否可靠。",
+          "aliases": [
+            "微观分析",
+            "从下到上"
+          ]
+        },
+        {
+          "name": "宏观层",
+          "description": "用于把握整体骨架和结构是否成立的分析层面。它关注作品的总体组织、层次关系和是否具备支撑全局的框架。",
+          "aliases": [
+            "宏观层面"
+          ]
+        },
+        {
+          "name": "场景分析",
+          "description": "对单个场景进行拆解和检查的分析方法，通常用于判断场景在戏剧结构中的功能和质量。它通过逐场审视事件、冲突和转折，帮助暴露结构问题。",
+          "aliases": [
+            "场景解剖"
+          ]
+        },
+        {
+          "name": "两头夹击",
+          "description": "一种同时从整体和局部推进的分析策略。它先检查大结构是否成立，再逐个场景进行拆解，从两个方向逼近剧本的问题所在。",
+          "aliases": []
+        },
+        {
+          "name": "分析的两个层面",
+          "description": "把剧本分析分为整体结构和局部场景两个层次的方法框架。它强调既要看全局骨架，也要看具体场景，才能较全面地诊断剧本。",
+          "aliases": [
+            "两个层面"
+          ]
+        },
+        {
+          "name": "场景分析五步法",
+          "description": "一种用于分析场景的分步骤方法，用来按固定程序审视场景中的关键要素。它的目的在于让场景的瑕疵在系统检查中显现出来。",
+          "aliases": [
+            "五步法"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "source": "分析的两个层面",
+          "target": "宏观层",
+          "relation": "包含"
+        },
+        {
+          "source": "分析的两个层面",
+          "target": "自上而下",
+          "relation": "对应"
+        },
+        {
+          "source": "分析的两个层面",
+          "target": "自下而上",
+          "relation": "对应"
+        },
+        {
+          "source": "两头夹击",
+          "target": "自上而下",
+          "relation": "包含"
+        },
+        {
+          "source": "两头夹击",
+          "target": "自下而上",
+          "relation": "包含"
+        },
+        {
+          "source": "场景分析",
+          "target": "场景分析五步法",
+          "relation": "可采用"
+        },
+        {
+          "source": "宏观层",
+          "target": "自上而下",
+          "relation": "体现"
+        }
+      ]
+    },
+    {
+      "chunk": 1,
+      "chars": 478,
+      "concepts": [
+        {
+          "name": "大情节",
+          "description": "一种强调强因果推进、明显转折和结局闭合的叙事类型。它通常依靠事件之间的连锁反应推动故事前进，并在结尾形成较强的整体收束。",
+          "aliases": []
+        },
+        {
+          "name": "小情节",
+          "description": "一种更强调开放性、日常性和较弱因果链的叙事类型。它往往不追求强烈的情节闭合，而是让人物处境、情绪或关系缓慢展开。",
+          "aliases": []
+        },
+        {
+          "name": "反情节",
+          "description": "一种有意削弱传统情节推进逻辑的叙事类型。它常通过断裂、反高潮、弱因果或开放式结构，抵抗标准戏剧性叙事的期待。",
+          "aliases": []
+        },
+        {
+          "name": "激励事件",
+          "description": "推动故事正式启动的关键事件。它改变人物原有状态，制造新的问题或目标，并为后续冲突提供起点。",
+          "aliases": []
+        },
+        {
+          "name": "进展纠葛",
+          "description": "故事在发展过程中不断加深和复杂化的冲突层次。它通过新的障碍、误解或代价升级叙事张力，并把人物推向更难的处境。",
+          "aliases": []
+        },
+        {
+          "name": "危机",
+          "description": "故事中需要做出关键抉择的紧要时刻。它通常把人物置于两难或多难境地，使其必须在不同代价之间做选择。",
+          "aliases": []
+        },
+        {
+          "name": "高潮",
+          "description": "叙事中冲突达到最高点并发生决定性变化的时刻。它通常以不可逆的行动或结果完成主要矛盾的解决或转折。",
+          "aliases": []
+        },
+        {
+          "name": "结局",
+          "description": "故事在高潮之后对主要冲突进行收束的部分。它负责呈现结果、余波或状态变化，让叙事在结构上完成终止。",
+          "aliases": []
+        },
+        {
+          "name": "主控思想",
+          "description": "作品所要表达的核心价值判断及其原因说明。它概括故事想证明什么，以及为什么会得出这样的判断。",
+          "aliases": []
+        },
+        {
+          "name": "人物弧光",
+          "description": "人物在故事过程中发生的内在变化轨迹。它体现人物如何在压力、选择和行动中逐渐显露真实面貌，并在关键时刻完成转变。",
+          "aliases": []
+        },
+        {
+          "name": "五部分设计",
+          "description": "一种将故事结构拆分为五个核心环节的分析框架，包括激励事件、进展纠葛、危机、高潮和结局。它用于检查情节推进是否完整、位置是否恰当、变化是否充分。",
+          "aliases": []
+        },
+        {
+          "name": "五步分析法",
+          "description": "一种把剧本或场景拆分为五个分析步骤的细读方法。它通过逐场检验结构、冲突、信息揭示和人物变化，帮助发现文本中的问题。",
+          "aliases": []
+        },
+        {
+          "name": "微观层",
+          "description": "叙事分析中关注单个场景、局部动作和细节推进的层面。它用于从局部结构入手，观察更细小的节奏、冲突和信息释放。",
+          "aliases": []
+        }
+      ],
+      "relations": [
+        {
+          "source": "五部分设计",
+          "target": "激励事件",
+          "relation": "包含"
+        },
+        {
+          "source": "五部分设计",
+          "target": "进展纠葛",
+          "relation": "包含"
+        },
+        {
+          "source": "五部分设计",
+          "target": "危机",
+          "relation": "包含"
+        },
+        {
+          "source": "五部分设计",
+          "target": "高潮",
+          "relation": "包含"
+        },
+        {
+          "source": "五部分设计",
+          "target": "结局",
+          "relation": "包含"
+        },
+        {
+          "source": "主控思想",
+          "target": "高潮",
+          "relation": "通过动作证明"
+        },
+        {
+          "source": "人物弧光",
+          "target": "危机",
+          "relation": "在压力下显现"
+        },
+        {
+          "source": "人物弧光",
+          "target": "高潮",
+          "relation": "在高潮处完成改变"
+        },
+        {
+          "source": "五步分析法",
+          "target": "微观层",
+          "relation": "用于"
+        }
+      ]
+    },
+    {
+      "chunk": 2,
+      "chars": 325,
+      "concepts": [
+        {
+          "name": "场景分析五步法",
+          "description": "一种用于拆解场景结构的写作分析方法，通过分步骤识别场景中的冲突、目标与价值变化来把握戏剧作用。它强调同时观察文本层面与潜文本层面的行动模式，以判断场景是否真正发生对抗与转折。",
+          "aliases": [
+            "五步法"
+          ]
+        },
+        {
+          "name": "冲突",
+          "description": "在叙事场景中，指推动场景运转的双方或多方目标之间的直接对抗。冲突通常表现为不同力量各自想要达成相反目的，并通过阻挡、争夺或抵消形成戏剧张力。",
+          "aliases": []
+        },
+        {
+          "name": "场景目标",
+          "description": "场景中某一力量为了达成的具体目的，用“为了……”的方式加以表述。它用于明确角色或力量在该场景中的主动诉求，并与对抗力量的诉求形成对照。",
+          "aliases": []
+        },
+        {
+          "name": "对抗力量",
+          "description": "在场景中阻挡主导力量达成目标的反向力量或阻力。它同样具有自身的目的与诉求，并通过与主导力量的对立构成场景冲突。",
+          "aliases": []
+        },
+        {
+          "name": "开篇价值",
+          "description": "一个场景在开始时被置于台面的核心价值对立及其初始状态。它通常以两极对照的方式呈现，例如自由与牢笼、爱与恨、信任与背叛，并标明起始时是正向还是负向。",
+          "aliases": []
+        },
+        {
+          "name": "潜文本",
+          "description": "叙事中未被直接说出、却通过行动、语气和情境暗示出来的隐含意义层。它与表层文本共同构成场景的完整信息，常用于揭示角色真实意图和关系张力。",
+          "aliases": [
+            "潜台词"
+          ]
+        },
+        {
+          "name": "文本",
+          "description": "叙事中直接呈现为字面内容的显性信息层。它包含角色说出的话、明确写出的动作和可直接观察到的场面信息。",
+          "aliases": []
+        },
+        {
+          "name": "相切",
+          "description": "一种看似有关联、实则没有真正冲突的关系状态。双方虽然并列出现或各自发声，但诉求并不直接对立，因此不足以形成有效的戏剧冲突。",
+          "aliases": []
+        }
+      ],
+      "relations": [
+        {
+          "source": "场景分析五步法",
+          "target": "冲突",
+          "relation": "包含"
+        },
+        {
+          "source": "场景分析五步法",
+          "target": "场景目标",
+          "relation": "使用"
+        },
+        {
+          "source": "场景分析五步法",
+          "target": "开篇价值",
+          "relation": "包含"
+        },
+        {
+          "source": "场景分析五步法",
+          "target": "潜文本",
+          "relation": "分析"
+        },
+        {
+          "source": "场景分析五步法",
+          "target": "文本",
+          "relation": "分析"
+        },
+        {
+          "source": "冲突",
+          "target": "对抗力量",
+          "relation": "涉及"
+        },
+        {
+          "source": "冲突",
+          "target": "场景目标",
+          "relation": "由...构成对立"
+        }
+      ]
+    },
+    {
+      "chunk": 3,
+      "chars": 365,
+      "concepts": [
+        {
+          "name": "节拍",
+          "description": "在场景分析中，节拍指一次动作与反应的交流单位。它用于把场景拆分成一连串可观察的互动变化，只有当行为发生明显变化时才进入下一个节拍。",
+          "aliases": []
+        },
+        {
+          "name": "潜文本",
+          "description": "潜文本是动作表面之下真正表达的含义，强调角色行为背后的情绪、意图或权力关系。它通常用进行时短语来呈现，使描述不止停留在字面动作，而是点出动作的本质。",
+          "aliases": []
+        },
+        {
+          "name": "进行时短语",
+          "description": "进行时短语是一种用持续进行的表达方式来写出动作的语言形式。它常被用来呈现角色的潜文本动作，并带出相应的情感色彩。",
+          "aliases": []
+        },
+        {
+          "name": "价值负荷",
+          "description": "价值负荷是场景在某一时刻所承载的正面或负面价值状态。它常用于比较场景开篇与结尾的变化，从而判断场景是否发生了转折。",
+          "aliases": []
+        },
+        {
+          "name": "非事件",
+          "description": "非事件是指场景开头与结尾的价值负荷相同，因此没有实质性变化的情况。它通常意味着场景没有产生转折，只是提供了少量信息或停留在平淡状态。",
+          "aliases": []
+        },
+        {
+          "name": "转折",
+          "description": "转折是场景中价值状态发生变化的节点，表示场面从一种负荷转换到另一种负荷。它说明场景内部出现了有效的戏剧性变化，而不是原地停留。",
+          "aliases": []
+        }
+      ],
+      "relations": [
+        {
+          "source": "节拍",
+          "target": "潜文本",
+          "relation": "包含"
+        },
+        {
+          "source": "潜文本",
+          "target": "进行时短语",
+          "relation": "通常用作"
+        },
+        {
+          "source": "价值负荷",
+          "target": "非事件",
+          "relation": "用于判断是否构成"
+        },
+        {
+          "source": "价值负荷",
+          "target": "转折",
+          "relation": "用于判断是否发生"
+        },
+        {
+          "source": "非事件",
+          "target": "转折",
+          "relation": "与之相对"
+        }
+      ]
+    },
+    {
+      "chunk": 4,
+      "chars": 185,
+      "concepts": [
+        {
+          "name": "转折点",
+          "description": "转折点是叙事结构中推动局势发生明显变化的关键节点，通常标志着前后状态、目标或结果的分界。它常通过事件、反应或信息揭示，使故事从铺垫阶段转入新的发展方向。",
+          "aliases": [
+            "拐点"
+          ]
+        },
+        {
+          "name": "场景弧线",
+          "description": "场景弧线是一个场景内部从起始状态走向变化结果的结构轨迹，强调动作、反应与结果之间的连贯推进。它帮助场景形成明确的方向感，使表面零散的行为围绕一个目的展开。",
+          "aliases": [
+            "场景中的弧线",
+            "弧线"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "source": "场景弧线",
+          "target": "转折点",
+          "relation": "包含"
+        }
+      ]
+    },
+    {
+      "chunk": 5,
+      "chars": 518,
+      "concepts": [
+        {
+          "name": "转折",
+          "description": "情节中出现的方向性变化，使人物处境、目标、信息或关系发生明显改变。转折通常推动故事进入新的状态，并让前后结果不再相同。",
+          "aliases": [
+            "场景转折"
+          ]
+        },
+        {
+          "name": "鸿沟",
+          "description": "戏剧结构中期望与结果之间的落差，表示人物原本预期的事情没有按预想发生。它能制造失衡感，并推动冲突和后续变化。",
+          "aliases": [
+            "期望与结果的鸿沟"
+          ]
+        },
+        {
+          "name": "冲突逐级升级",
+          "description": "冲突强度按照层次不断加深的结构方式。它要求对抗、压力或代价持续上升，而不是在同一水平上反复拉扯。",
+          "aliases": [
+            "逐级升级的冲突"
+          ]
+        },
+        {
+          "name": "对抗力量",
+          "description": "与主人公目标相抵触、阻碍其达成愿望的力量。它可以来自人物、制度、环境或内在障碍，通常需要足够强大才会形成有效戏剧张力。",
+          "aliases": [
+            "反面力量",
+            "阻力"
+          ]
+        },
+        {
+          "name": "主人公欲望",
+          "description": "故事中主人公最核心、最明确的追求目标。它驱动人物的行动选择，并为情节提供持续的方向感。",
+          "aliases": [
+            "主人公的欲望",
+            "角色欲望"
+          ]
+        },
+        {
+          "name": "主控思想",
+          "description": "作品背后统摄情节与人物的核心观念或主题命题。它通常不直接靠说教表达，而是通过行动、冲突和结果被观众感知。",
+          "aliases": [
+            "主题思想"
+          ]
+        },
+        {
+          "name": "好奇心",
+          "description": "观众对于后续结果、真相或变化的期待与追问。它是叙事张力的重要来源，能促使观众持续关注故事进展。",
+          "aliases": [
+            "悬念性好奇心"
+          ]
+        },
+        {
+          "name": "关切",
+          "description": "观众对人物命运、价值立场或处境产生的情感投入。它使观众不只是想知道结果，还会在情感上在意结果对谁意味着什么。",
+          "aliases": [
+            "情感关切"
+          ]
+        },
+        {
+          "name": "人物真相",
+          "description": "人物在压力和选择中显露出来的真实面貌、价值取向与内在本质。它不是表面性格展示，而是在关键时刻通过行动被揭示出来。",
+          "aliases": [
+            "人物的真相"
+          ]
+        },
+        {
+          "name": "高潮",
+          "description": "叙事中冲突最集中、结果最 निर्ण决定性的高峰段落。它通常通过人物的关键选择与行动完成，决定故事主要矛盾的最终走向。",
+          "aliases": [
+            "戏剧高潮"
+          ]
+        },
+        {
+          "name": "巧合",
+          "description": "由偶然事件造成的情节结果或转折。它如果被用来替代人物选择和因果推进，往往会削弱戏剧说服力。",
+          "aliases": [
+            "偶然性"
+          ]
+        },
+        {
+          "name": "戏剧化解说",
+          "description": "把背景信息、因果关系或设定内容融入戏剧行动中呈现的写法。它避免直接说明，而是让信息通过冲突、动作和场面自然显露。",
+          "aliases": [
+            "戏剧化说明"
+          ]
+        },
+        {
+          "name": "逻辑漏洞",
+          "description": "叙事中因果链条断裂、前提不成立或推演不一致而产生的错误。它会使情节失去可信度，让关键事件显得说不通。",
+          "aliases": [
+            "因果漏洞"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "source": "高潮",
+          "target": "人物真相",
+          "relation": "由选择和行动揭示"
+        },
+        {
+          "source": "戏剧化解说",
+          "target": "主控思想",
+          "relation": "用于呈现"
+        },
+        {
+          "source": "戏剧化解说",
+          "target": "逻辑漏洞",
+          "relation": "有助于避免"
+        },
+        {
+          "source": "对抗力量",
+          "target": "冲突逐级升级",
+          "relation": "推动"
+        },
+        {
+          "source": "主人公欲望",
+          "target": "冲突逐级升级",
+          "relation": "驱动"
+        }
+      ]
+    },
+    {
+      "chunk": 6,
+      "chars": 452,
+      "concepts": [
+        {
+          "name": "非事件场景",
+          "description": "一种场景类型，其中开端与结尾的价值状态相同，因而没有发生可辨认的事件变化。它在叙事上通常缺乏推进作用，往往需要删除或重写。",
+          "aliases": []
+        },
+        {
+          "name": "解说场景",
+          "description": "一种场景，其存在的主要目的只是向观众交代信息。它通常不应单独承担说明功能，而应把信息拆散并嵌入有冲突的场景中自然呈现。",
+          "aliases": [
+            "交代戏"
+          ]
+        },
+        {
+          "name": "活动",
+          "description": "人物表面上忙碌运作，但并没有形成有效的目标推进、风险变化或结果落差的行为状态。它只是填充而非故事，因此通常不具备戏剧性价值。",
+          "aliases": []
+        },
+        {
+          "name": "行动",
+          "description": "带着目标、预期和结果差距推进情节的行为方式。它与单纯的活动不同，能够制造冲突、变化和故事发展。",
+          "aliases": []
+        },
+        {
+          "name": "冲突层级",
+          "description": "冲突在对抗强度或对立程度上的层次。若同一层级的较量没有进一步升级，内容就容易显得重复和冗余。",
+          "aliases": []
+        },
+        {
+          "name": "无升级较量",
+          "description": "一种对抗状态，其中后续冲突并未比前面的冲突更强、更复杂或更具后果。它通常意味着重复，适合合并或删除。",
+          "aliases": []
+        }
+      ],
+      "relations": [
+        {
+          "source": "非事件场景",
+          "target": "行动",
+          "relation": "缺乏"
+        },
+        {
+          "source": "解说场景",
+          "target": "活动",
+          "relation": "不是"
+        },
+        {
+          "source": "无升级较量",
+          "target": "冲突层级",
+          "relation": "停留在同一层级"
+        }
+      ]
+    },
+    {
+      "chunk": 7,
+      "chars": 338,
+      "concepts": [
+        {
+          "name": "切线冲突",
+          "description": "人物之间的欲望和目标并不直接对撞，而是各说各话、擦肩而过式地冲突。它会让戏剧场面缺少真正的交锋，因此需要调整为更明确的正面冲突。",
+          "aliases": []
+        },
+        {
+          "name": "台词点题",
+          "description": "角色把内心想法、动机或主题直接说出来，让台词承担解释和总结的功能。它会削弱戏剧中的含蓄和张力，常需要改写成表面话语与真实意图不一致的表达方式。",
+          "aliases": [
+            "戏剧腔",
+            "on-the-nose"
+          ]
+        },
+        {
+          "name": "潜文本",
+          "description": "潜文本是台词和行动背后没有被直接说破的真实意图、情绪和关系含义。它通过“说一套、做一套”或言外之意来制造层次和张力，是戏剧表达的重要深层结构。",
+          "aliases": []
+        },
+        {
+          "name": "巧合",
+          "description": "巧合是情节中由偶然事件促成的转折因素，常用于启动故事或引出变化。它可以作为情节的起点，但如果用来直接解决高潮冲突，就会削弱人物选择和因果推进的力量。",
+          "aliases": []
+        }
+      ],
+      "relations": [
+        {
+          "source": "台词点题",
+          "target": "潜文本",
+          "relation": "削弱"
+        },
+        {
+          "source": "巧合",
+          "target": "潜文本",
+          "relation": "不能替代"
+        }
+      ]
+    },
+    {
+      "chunk": 8,
+      "chars": 337,
+      "concepts": [
+        {
+          "name": "兴趣问题",
+          "description": "一种叙事判断标准，用来检验作品是否能同时维持观众的好奇心与关切感，并在高潮处兑现前面积累的期待。它关注的是故事推进是否持续吸引人，以及结局是否给出足够有力的回报。",
+          "aliases": []
+        },
+        {
+          "name": "惊奇问题",
+          "description": "一种叙事判断标准，用来区分“廉价惊奇”和“真惊奇”。前者依赖隐瞒信息或突然吓人，后者则通过揭示一个其实一直存在、却被忽略的真相来制造惊讶，因此更有价值。",
+          "aliases": []
+        },
+        {
+          "name": "巧合问题",
+          "description": "一种叙事判断标准，用来评估巧合在情节中的使用方式。巧合可以用来推动故事进入某种局面或帮助故事走向收束，但不能承担解决高潮矛盾的核心功能。",
+          "aliases": []
+        },
+        {
+          "name": "喜剧问题",
+          "description": "一种叙事判断标准，用来衡量喜剧是否具备结构和明确的攻击对象。它强调喜剧不能只是段子堆砌，而必须让笑点服务于整体构造与讽刺目标。",
+          "aliases": []
+        },
+        {
+          "name": "主观视点问题",
+          "description": "一种叙事判断标准，用来检查场景内部和故事整体的视点是否统一、清晰。它关注观众接收到的信息是否始终围绕某个明确的感知和理解位置展开。",
+          "aliases": []
+        },
+        {
+          "name": "改编问题",
+          "description": "一种叙事判断标准，用来衡量小说或戏剧改编是否真正转化为电影叙事。合格的改编应当主要依靠电影特有的戏剧化手段来呈现，而不是依赖旁白或独白替代影像表达。",
+          "aliases": []
+        },
+        {
+          "name": "戏剧腔问题",
+          "description": "一种叙事判断标准，用来判断情感表达是否过度夸张、超出了动机所能支撑的范围。它所说的“过载”通常意味着人物情绪和行为不够可信，因而削弱戏剧效果。",
+          "aliases": [
+            "melodrama"
+          ]
+        },
+        {
+          "name": "漏洞问题",
+          "description": "一种叙事判断标准，用来检查故事的逻辑链是否自洽、关键因果是否成立。它关注情节中的因果关系是否站得住脚，以及是否存在破坏整体可信度的逻辑缺口。",
+          "aliases": []
+        }
+      ],
+      "relations": []
+    }
+  ]
+}

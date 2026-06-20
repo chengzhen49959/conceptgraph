@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { usePanelRef } from 'react-resizable-panels'
 import { toast } from 'sonner'
 import {
   type DocumentOut,
@@ -20,6 +19,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from '@/components/ui/resizable'
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppTopbar } from './AppTopbar'
 import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
@@ -36,15 +36,6 @@ export function WorkspaceView({ email }: { email: string | null }) {
   const [busy, setBusy] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
-
-  // Imperative handle on the left panel so the topbar button can collapse it.
-  const leftRef = usePanelRef()
-  const toggleLeft = useCallback(() => {
-    const p = leftRef.current
-    if (!p) return
-    if (p.isCollapsed()) p.expand()
-    else p.collapse()
-  }, [leftRef])
 
   // Cluster drill-in: null = overview (every cluster collapses to one super-node);
   // an id = focus that cluster, showing only its concepts and the edges between
@@ -192,83 +183,67 @@ export function WorkspaceView({ email }: { email: string | null }) {
   )
 
   return (
-    <div className="flex h-screen flex-col">
-      <AppTopbar
-        email={email}
+    <SidebarProvider className="h-screen">
+      <NavSidebar
+        documents={docs}
+        graph={graph}
+        onPickFile={handleFile}
+        busy={busy}
+        loading={loadingDocs}
         workspaceName="Personal"
+        email={email}
         onOpenSearch={() => setSearchOpen(true)}
-        onToggleSidebar={toggleLeft}
+        focusedClusterId={effectiveFocusedClusterId}
+        onFocusCluster={onFocusCluster}
+        onSelectConcept={setSelectedId}
+        onHoverTopic={setHoverTopicId}
+        onHoverConcept={setHoverConceptId}
+        onDeleteDocuments={handleDeleteDocuments}
+        onDeleteClusters={handleDeleteClusters}
       />
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel
-          id="left"
-          panelRef={leftRef}
-          defaultSize="260px"
-          minSize="200px"
-          maxSize="420px"
-          collapsible
-          collapsedSize="0px"
-          groupResizeBehavior="preserve-pixel-size"
-          className="min-w-0"
-        >
-          <NavSidebar
-            documents={docs}
-            graph={graph}
-            onPickFile={handleFile}
-            busy={busy}
-            loading={loadingDocs}
-            workspaceName="Personal"
-            onOpenSearch={() => setSearchOpen(true)}
-            focusedClusterId={effectiveFocusedClusterId}
-            onFocusCluster={onFocusCluster}
-            onSelectConcept={setSelectedId}
-            onHoverTopic={setHoverTopicId}
-            onHoverConcept={setHoverConceptId}
-            onDeleteDocuments={handleDeleteDocuments}
-            onDeleteClusters={handleDeleteClusters}
-          />
-        </ResizablePanel>
+      <SidebarInset className="flex min-h-0 flex-1 flex-col">
+        <AppTopbar onOpenSearch={() => setSearchOpen(true)} />
 
-        <ResizableHandle withHandle />
-
-        <ResizablePanel id="center" className="min-w-0">
-          <main className="h-full min-w-0">
-            <GraphCanvas
-              data={graph}
-              selectedId={selectedId}
-              onSelectId={setSelectedId}
-              focusedClusterId={effectiveFocusedClusterId}
-              onFocusCluster={onFocusCluster}
-              highlightClusterId={hoverTopicId}
-              highlightConceptId={hoverConceptId}
-            />
-          </main>
-        </ResizablePanel>
-
-        {selectedNode && (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel
-              id="right"
-              defaultSize="320px"
-              minSize="260px"
-              maxSize="480px"
-              groupResizeBehavior="preserve-pixel-size"
-              className="min-w-0"
-            >
-              <ConceptPanel
-                node={selectedNode}
-                graph={graph}
-                onClose={() => setSelectedId(null)}
-                onNavigate={setSelectedId}
+        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          <ResizablePanel id="center" className="min-w-0">
+            <main className="h-full min-w-0">
+              <GraphCanvas
+                data={graph}
+                selectedId={selectedId}
+                onSelectId={setSelectedId}
+                focusedClusterId={effectiveFocusedClusterId}
+                onFocusCluster={onFocusCluster}
+                highlightClusterId={hoverTopicId}
+                highlightConceptId={hoverConceptId}
               />
-            </ResizablePanel>
-          </>
-        )}
-      </ResizablePanelGroup>
+            </main>
+          </ResizablePanel>
 
-      <StatusBar graph={graph} documents={docs} />
+          {selectedNode && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel
+                id="right"
+                defaultSize="320px"
+                minSize="260px"
+                maxSize="480px"
+                groupResizeBehavior="preserve-pixel-size"
+                className="min-w-0"
+              >
+                <ConceptPanel
+                  node={selectedNode}
+                  graph={graph}
+                  onClose={() => setSelectedId(null)}
+                  onNavigate={setSelectedId}
+                />
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+
+        <StatusBar graph={graph} documents={docs} />
+      </SidebarInset>
 
       <SearchPalette
         open={searchOpen}
@@ -276,6 +251,6 @@ export function WorkspaceView({ email }: { email: string | null }) {
         nodes={graph.nodes}
         onPick={setSelectedId}
       />
-    </div>
+    </SidebarProvider>
   )
 }

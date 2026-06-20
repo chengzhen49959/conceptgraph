@@ -145,6 +145,22 @@ export function getConcept(id: string) {
   return apiClient<ConceptDetail>(`/api/concepts/${id}`)
 }
 
+/** One source passage: the chunk text a concept was mentioned in, plus its doc. */
+export type ConceptPassage = {
+  document_id: string
+  document_title: string
+  chunk_id: string
+  content: string
+}
+
+export type ConceptPassages = { passages: ConceptPassage[] }
+
+/** Source passages backing a concept — chunk text + document, for the evidence
+ *  view. Flat list ordered by document; the client groups it. */
+export function getConceptPassages(id: string) {
+  return apiClient<ConceptPassages>(`/api/concepts/${id}/passages`)
+}
+
 // --- Deletes ---------------------------------------------------------------
 
 /** Counts returned by a batch delete (fields present depend on the endpoint). */

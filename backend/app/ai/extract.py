@@ -28,26 +28,34 @@ class ChunkExtraction(BaseModel):
 
 _INSTRUCTIONS = """You extract knowledge from ONE passage of a document for a knowledge graph.
 
+LANGUAGE — first identify the passage's primary language and write EVERY `name`,
+`alias`, and `description` in THAT language. Never translate, transliterate, or
+switch language: an English passage yields English names, a Chinese passage
+yields Chinese names. The examples below are illustrative only — ignore whatever
+language they happen to use.
+
 CONCEPTS — every concept that passes the inclusion test below. Do NOT cap the
 count; return as many as the passage substantively covers (a dense passage has
 several, a thin one may have none). A core concept is a specific, nameable idea:
-a method, mechanism, structure, principle, phenomenon, named entity, or result
+a method, mechanism, structure, principle, phenomenon, framework, or result
 the passage introduces, explains, or builds on directly.
 
 Include a concept only if ALL hold:
 - An encyclopedia could have a focused article under exactly this name.
-- It is NOT a whole field or umbrella term (wrong: "Machine Learning", "经济学").
+- It is NOT a whole field or umbrella term (wrong: "Machine Learning", "Linguistics").
 - It is NOT a generic activity, property, or artifact (wrong: "Training",
-  "Evaluation", "Dataset", "动态", "原因").
+  "Evaluation", "Dataset", "Optimization", "Cause").
+- It is NOT a person. Never extract someone's name — the document's author, a
+  cited theorist or researcher, a historical figure — as a concept; extract the
+  idea, method, or framework they introduced instead, under its standard name
+  (a passage by Darwin on evolution yields "natural selection", never "Darwin").
+  The same applies to an organization cited only as a source.
 - The passage substantively explains or uses it — not a passing mention.
 - It is NOT a sentence, clause, claim, or question — only a noun-phrase term.
 
 Prefer the most specific name the passage treats. Use the standard community
 term as `name` (short noun phrase, singular, standard casing; spelled-out form
 when an acronym also exists); put variants/abbreviations in `aliases`.
-
-Language: write `name` and `description` in the SAME language as the passage;
-never translate.
 
 `description` (REQUIRED): 2-3 sentences defining the concept in general,
 self-contained terms — what it is, how it works, what it is for. Write it like a

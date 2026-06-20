@@ -15,7 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
-from app.models import Cluster, Concept, ConceptAlias, ConceptMention, Document, Edge
+from app.models import (
+    Chunk,
+    Cluster,
+    Concept,
+    ConceptAlias,
+    ConceptMention,
+    Document,
+    Edge,
+)
 from app.services.workspaces import require_workspace
 
 router = APIRouter(prefix="/api/concepts", tags=["concepts"])
@@ -35,6 +43,17 @@ class ConceptDetail(BaseModel):
     documents: list[ConceptDocument]  # provenance: docs that mention it
     mentions: int  # total mention rows
     degree: int  # edges incident to this concept
+
+
+class ConceptPassage(BaseModel):
+    document_id: uuid.UUID
+    document_title: str
+    chunk_id: uuid.UUID
+    content: str  # the full source chunk text the mention was found in
+
+
+class ConceptPassages(BaseModel):
+    passages: list[ConceptPassage]
 
 
 @router.get("/{concept_id}", response_model=ConceptDetail)
@@ -105,4 +124,43 @@ async def get_concept(
         documents=[ConceptDocument(document_id=r[0], title=r[1]) for r in doc_rows],
         mentions=mentions,
         degree=degree,
+    )
+
+
+@router.get("/{concept_id}/passages", response_model=ConceptPassages)
+async def get_concept_passages(
+    concept_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ConceptPassages:
+    """Source passages backing a concept — the evidence the graph omits.
+
+    Joins each mention to its chunk text and document, so the panel can show
+    *where* in the user's documents a concept actually appears. Capped at 200
+    rows: a handful of popular concepts could otherwise return every chunk they
+    touch. Ordered by document then chunk so the client can group by document.
+    """
+    concept = await session.get(Concept, concept_id)
+    if concept is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "concept not found")
+    await require_workspace(session, user.id, concept.workspace_id)
+
+    rows = (
+        await session.execute(
+            select(Document.id, Document.title, Chunk.id, Chunk.content)
+            .join(ConceptMention, ConceptMention.chunk_id == Chunk.id)
+            .join(Document, Document.id == ConceptMention.document_id)
+            .where(ConceptMention.concept_id == concept_id)
+            .order_by(Document.title, Chunk.id)
+            .limit(200)
+        )
+    ).all()
+
+    return ConceptPassages(
+        passages=[
+            ConceptPassage(
+                document_id=r[0], document_title=r[1], chunk_id=r[2], content=r[3]
+            )
+            for r in rows
+        ]
     )

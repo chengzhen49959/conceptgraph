@@ -41,6 +41,11 @@ _GLOSSARY_LEAK = re.compile(
 )
 _SENTENCE_PUNCT = re.compile(r"[。！？!?…;；]|\.\.\.")
 
+# Regression guard for the 麦基/McKee bug: the test document's AUTHOR must never
+# surface as a concept. The extraction prompt now excludes persons; this asserts
+# it stays fixed. Compared case-insensitively against final concept names.
+_FORBIDDEN_PERSON = {"麦基", "mckee", "robert mckee", "罗伯特·麦基", "罗伯特•麦基"}
+
 
 def _cos(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
@@ -157,6 +162,7 @@ async def main() -> None:
     # --- quality flags --------------------------------------------------------
     leaks = [a["name"] for a in accepted if _GLOSSARY_LEAK.search(a["description"] or "")]
     bad_names = [a["name"] for a in accepted if _SENTENCE_PUNCT.search(a["name"])]
+    persons = [a["name"] for a in accepted if a["name"].strip().lower() in _FORBIDDEN_PERSON]
 
     print(
         f"[dedup] {len(accepted)} final concepts  "
@@ -165,6 +171,7 @@ async def main() -> None:
     )
     print(f"[relations] {len(rel_w)} after remap+dedup")
     print(f"[quality] glossary-leak descriptions: {len(leaks)}  sentence-punct names: {len(bad_names)}")
+    print(f"[quality] forbidden person-names: {len(persons)} -> {persons or '(ok PASS)'}")
 
     # --- write artifacts ------------------------------------------------------
     nodes = sorted(accepted, key=lambda a: a["mentions"], reverse=True)
@@ -173,8 +180,10 @@ async def main() -> None:
         for k, w in sorted(rel_w.items(), key=lambda kv: kv[1], reverse=True)
     ]
 
-    out_json = INPUT.with_name(INPUT.stem + ".pipeline.json")
-    out_md = INPUT.with_name(INPUT.stem + ".pipeline.md")
+    out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else INPUT.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_json = out_dir / (INPUT.stem + ".pipeline.json")
+    out_md = out_dir / (INPUT.stem + ".pipeline.md")
 
     out_json.write_text(json.dumps({
         "input": str(INPUT),
@@ -189,7 +198,8 @@ async def main() -> None:
             "final_concepts": len(accepted), "raw_relations": raw_relations,
             "final_relations": len(relations), **st,
         },
-        "quality": {"glossary_leaks": leaks, "sentence_punct_names": bad_names},
+        "quality": {"glossary_leaks": leaks, "sentence_punct_names": bad_names,
+                    "forbidden_person_names": persons},
         "concepts": [
             {kk: a.get(kk) for kk in ("name", "description", "aliases", "mentions",
                                       "decided_by", "nearest_sim", "match_reason", "merges")}
@@ -217,6 +227,8 @@ async def main() -> None:
              f"match calls={st['match_call']} (merged {st['matched']} / judged-distinct {st['none']})")
     L.append(f"- relations: {raw_relations} raw -> **{len(relations)} after remap+dedup**\n")
     L.append("## Quality")
+    L.append(f"- forbidden person-names (should be 0): **{len(persons)}**"
+             + (f" -> {', '.join(persons)} **FAIL**" if persons else " (ok **PASS**)"))
     L.append(f"- glossary-leak descriptions (reference 本文/作者/...): **{len(leaks)}**"
              + (f" -> {', '.join(leaks)}" if leaks else " (ok)"))
     L.append(f"- sentence-punctuation names (should be 0): **{len(bad_names)}**"

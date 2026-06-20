@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { FileText, X } from 'lucide-react'
+import { ChevronRight, FileText, X } from 'lucide-react'
 import {
   type ConceptDetail as ConceptData,
+  type ConceptPassage,
   type GraphData,
   type GraphNode,
   getConcept,
+  getConceptPassages,
 } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -34,6 +36,67 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+const EMPTY_DOCS: ReadonlySet<string> = new Set()
+const SNIPPET_BEFORE = 120 // chars kept before the matched term
+const SNIPPET_AFTER = 160 // chars kept after it
+const FALLBACK_LEN = 240 // head of the chunk shown when no term is found
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** A readable window of `content` around the first occurrence of any term,
+ *  with the term itself preserved for highlighting. Chunks are ~512 tokens, so
+ *  showing the whole thing would bury the mention; this trims to the sentence
+ *  or two around it. Falls back to the head of the chunk when no term matches
+ *  (alias morphology, stemming, casing the search missed). */
+function snippetAround(content: string, terms: string[]): string {
+  const lc = content.toLowerCase()
+  let at = -1
+  let hitLen = 0
+  for (const t of terms) {
+    const i = lc.indexOf(t.toLowerCase())
+    if (i !== -1 && (at === -1 || i < at)) {
+      at = i
+      hitLen = t.length
+    }
+  }
+  if (at === -1) {
+    return content.length > FALLBACK_LEN ? content.slice(0, FALLBACK_LEN) + '…' : content
+  }
+  const start = Math.max(0, at - SNIPPET_BEFORE)
+  const end = Math.min(content.length, at + hitLen + SNIPPET_AFTER)
+  return (
+    (start > 0 ? '…' : '') + content.slice(start, end) + (end < content.length ? '…' : '')
+  )
+}
+
+/** Renders `text` with every occurrence of any term wrapped in <mark>. Terms
+ *  are matched case-insensitively and as plain substrings (no word boundary —
+ *  Chinese has none). Longest-first so a term isn't pre-empted by a shorter one
+ *  that is its prefix. */
+function Highlighted({ text, terms }: { text: string; terms: string[] }) {
+  const re = useMemo(() => {
+    const valid = terms.filter(Boolean).map(escapeRegExp).sort((a, b) => b.length - a.length)
+    return valid.length ? new RegExp(`(${valid.join('|')})`, 'gi') : null
+  }, [terms])
+  if (!re) return <>{text}</>
+  // split on a single capturing group → odd indices are the matched terms.
+  return (
+    <>
+      {text.split(re).map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="rounded-sm bg-primary/20 px-0.5 text-foreground">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  )
+}
+
 export function ConceptPanel({
   node,
   graph,
@@ -45,25 +108,99 @@ export function ConceptPanel({
   onClose: () => void
   onNavigate: (id: string) => void
 }) {
-  const [detail, setDetail] = useState<ConceptData | null>(null)
-  const [loading, setLoading] = useState(true)
-
+  // Fetched data is tagged with the concept id it belongs to. The view derives
+  // both the current-concept data and its loading flag from that tag, so a
+  // concept switch resets to "loading" by comparison alone — no synchronous
+  // setState in the effect body (which would cascade renders). setState happens
+  // only in the async settle callbacks; `alive` drops a response that lost its
+  // race to a newer selection.
+  const [detailState, setDetailState] = useState<{
+    key: string
+    data: ConceptData | null
+  } | null>(null)
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    setDetail(null)
     getConcept(node.id)
       .then((d) => {
-        if (alive) setDetail(d)
+        if (alive) setDetailState({ key: node.id, data: d })
       })
-      .catch((e) => toast.error((e as Error).message))
-      .finally(() => {
-        if (alive) setLoading(false)
+      .catch((e) => {
+        toast.error((e as Error).message)
+        if (alive) setDetailState({ key: node.id, data: null })
       })
     return () => {
       alive = false
     }
   }, [node.id])
+  const detail = detailState?.key === node.id ? detailState.data : null
+  const loading = detailState?.key !== node.id
+
+  // Source passages load on their own track: the chunk text is large and not
+  // always read, so it must not gate the header/stats above. Same keyed shape.
+  const [passagesState, setPassagesState] = useState<{
+    key: string
+    data: ConceptPassage[]
+  } | null>(null)
+  useEffect(() => {
+    let alive = true
+    getConceptPassages(node.id)
+      .then((d) => {
+        if (alive) setPassagesState({ key: node.id, data: d.passages })
+      })
+      .catch((e) => {
+        toast.error((e as Error).message)
+        if (alive) setPassagesState({ key: node.id, data: [] })
+      })
+    return () => {
+      alive = false
+    }
+  }, [node.id])
+  const passages = passagesState?.key === node.id ? passagesState.data : null
+  const passagesLoading = passagesState?.key !== node.id
+
+  const byDoc = useMemo(() => {
+    const groups = new Map<
+      string,
+      { document_id: string; title: string; items: ConceptPassage[] }
+    >()
+    for (const p of passages ?? []) {
+      let g = groups.get(p.document_id)
+      if (!g) {
+        g = { document_id: p.document_id, title: p.document_title, items: [] }
+        groups.set(p.document_id, g)
+      }
+      g.items.push(p)
+    }
+    return [...groups.values()]
+  }, [passages])
+
+  // Highlight the concept's own name and every merged alias inside each passage.
+  const terms = useMemo(
+    () => [node.name, ...(detail?.aliases ?? [])].filter(Boolean),
+    [node.name, detail?.aliases],
+  )
+
+  // Per-document expand state. Stored keyed on the concept so switching concepts
+  // resets to the default without a state-resetting effect: a stale key reads as
+  // "no overrides". Default open when the whole list is small; collapsed when a
+  // wall of passages would otherwise dominate the panel. Each toggle flips a doc
+  // away from that default.
+  const [opened, setOpened] = useState<{ key: string; docs: Set<string> }>({
+    key: node.id,
+    docs: new Set(),
+  })
+  const overrides = opened.key === node.id ? opened.docs : EMPTY_DOCS
+  const defaultOpen = (passages?.length ?? 0) > 0 && passages!.length <= 6
+  const isOpen = (docId: string) =>
+    overrides.has(docId) ? !defaultOpen : defaultOpen
+  const toggleDoc = (docId: string) => {
+    setOpened((prev) => {
+      const docs = new Set(prev.key === node.id ? prev.docs : [])
+      if (docs.has(docId)) docs.delete(docId)
+      else docs.add(docId)
+      return { key: node.id, docs }
+    })
+  }
 
   // Neighbours come from the already-loaded graph, not the API.
   const neighbors = useMemo(() => {
@@ -139,24 +276,67 @@ export function ConceptPanel({
                 </Section>
               )}
 
-              {detail && detail.documents.length > 0 && (
-                <Section title="Mentioned in">
-                  <ul className="space-y-1">
-                    {detail.documents.map((d) => (
-                      <li
-                        key={d.document_id}
-                        className="flex items-center gap-2 text-sm text-foreground/90"
-                      >
-                        <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate" title={d.title}>
-                          {d.title}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </Section>
-              )}
             </>
+          )}
+
+          {passagesLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : (
+            byDoc.length > 0 && (
+              <Section title="Sources">
+                <ul className="space-y-1.5">
+                  {byDoc.map((g) => {
+                    const open = isOpen(g.document_id)
+                    return (
+                      <li
+                        key={g.document_id}
+                        className="overflow-hidden rounded-md border"
+                      >
+                        <button
+                          onClick={() => toggleDoc(g.document_id)}
+                          aria-expanded={open}
+                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
+                        >
+                          <ChevronRight
+                            className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${
+                              open ? 'rotate-90' : ''
+                            }`}
+                          />
+                          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate" title={g.title}>
+                            {g.title}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 font-normal tabular-nums"
+                          >
+                            {g.items.length}
+                          </Badge>
+                        </button>
+                        {open && (
+                          <div className="space-y-2 border-t bg-muted/30 px-2.5 py-2">
+                            {g.items.map((p) => (
+                              <p
+                                key={p.chunk_id}
+                                className="text-xs leading-relaxed text-foreground/80"
+                              >
+                                <Highlighted
+                                  text={snippetAround(p.content, terms)}
+                                  terms={terms}
+                                />
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </Section>
+            )
           )}
 
           {neighbors.length > 0 && (
