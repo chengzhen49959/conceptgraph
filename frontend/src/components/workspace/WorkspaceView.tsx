@@ -30,7 +30,6 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppTopbar } from './AppTopbar'
 import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
-import { GraphControls } from './GraphControls'
 import { GraphEditToolbar } from './GraphEditToolbar'
 import { ConceptPanel } from './ConceptDetail'
 import { SearchPalette } from './SearchPalette'
@@ -64,8 +63,10 @@ export function WorkspaceView({
   const [hoverTopicId, setHoverTopicId] = useState<string | null>(null)
   const [hoverConceptId, setHoverConceptId] = useState<string | null>(null)
 
-  // Obsidian-style graph control panel state (filters / groups / display /
-  // forces), persisted to localStorage per workspace.
+  // Graph control-panel state (filters / display / forces / local graph),
+  // persisted to localStorage per workspace. NavSidebar owns the whole control
+  // surface now (topic colour/visibility + the control sections), so it only needs
+  // the state and its setter.
   const [settings, patchSettings] = useGraphSettings(workspaceId)
 
   const refreshDocs = useCallback(async () => {
@@ -313,6 +314,8 @@ export function WorkspaceView({
         onHoverConcept={setHoverConceptId}
         onDeleteDocuments={handleDeleteDocuments}
         onDeleteClusters={handleDeleteClusters}
+        settings={settings}
+        onChange={patchSettings}
       />
 
       <SidebarInset className="flex min-h-0 flex-1 flex-col">
@@ -335,7 +338,6 @@ export function WorkspaceView({
                   }}
                 />
               )}
-              <GraphControls settings={settings} onChange={patchSettings} />
               <GraphCanvas
                 data={graph}
                 settings={settings}

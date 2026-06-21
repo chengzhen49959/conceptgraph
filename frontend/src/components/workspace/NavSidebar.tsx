@@ -1,14 +1,17 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  Eye,
+  EyeOff,
   FileText,
   LoaderCircle,
   Plus,
   Search,
+  Settings,
   Trash2,
   X,
 } from 'lucide-react'
@@ -18,8 +21,8 @@ import {
   type GraphNode,
   type WorkspaceCard,
 } from '@/lib/api'
-import { clusterColorMap } from '@/lib/cluster-color'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Sidebar,
@@ -27,7 +30,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupAction,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
@@ -39,6 +41,15 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
+import { clusterColorMap } from '@/lib/cluster-color'
+import {
+  type GraphSettings,
+  type GraphSettingsPatch,
+  topicColorOf,
+} from '@/lib/graph-settings'
+import { ColorPicker } from './ColorSwatch'
+import { GraphControls } from './GraphControls'
+import { SectionLabel } from './SidebarSection'
 import { NavUser } from './NavUser'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
@@ -64,40 +75,6 @@ function DocStatusIcon({ status }: { status: DocumentOut['status'] }) {
     return <CircleAlert className="size-3.5 shrink-0 text-destructive" />
   return (
     <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-  )
-}
-
-/**
- * Collapsible section label built on `SidebarGroupLabel` (which fades out on the
- * icon rail). The chevron rotates with `open`; `count` trails the title.
- */
-function SectionLabel({
-  label,
-  count,
-  open,
-  onToggle,
-}: {
-  label: string
-  count?: number
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <SidebarGroupLabel asChild>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full cursor-pointer gap-1 hover:text-sidebar-foreground"
-      >
-        <ChevronRight
-          className={cn('transition-transform', open && 'rotate-90')}
-        />
-        <span className="uppercase tracking-wide">{label}</span>
-        {count != null && (
-          <span className="ml-1 text-sidebar-foreground/40">{count}</span>
-        )}
-      </button>
-    </SidebarGroupLabel>
   )
 }
 
@@ -188,6 +165,8 @@ export function NavSidebar({
   onHoverConcept,
   onDeleteDocuments,
   onDeleteClusters,
+  settings,
+  onChange,
 }: {
   documents: DocumentOut[]
   graph: GraphData
@@ -204,6 +183,10 @@ export function NavSidebar({
   onHoverConcept: (id: string | null) => void
   onDeleteDocuments: (ids: string[]) => Promise<void>
   onDeleteClusters: (ids: string[]) => Promise<void>
+  /** Graph control-panel state — drives the Topics rows' colour/visibility and the
+   *  Filters / Display / Forces / Local graph sections rendered beneath them. */
+  settings: GraphSettings
+  onChange: (patch: GraphSettingsPatch) => void
 }) {
   const [docsOpen, setDocsOpen] = useState(true)
   const [clustersOpen, setClustersOpen] = useState(true)
@@ -248,9 +231,6 @@ export function NavSidebar({
   const fileRef = useRef<HTMLInputElement>(null)
   const pickFile = () => fileRef.current?.click()
 
-  // Same hue a cluster wears on the canvas (ordered by the graph's cluster list).
-  const colorOf = useMemo(() => clusterColorMap(graph.clusters), [graph.clusters])
-
   // Concepts grouped under each topic, most-mentioned first — the expandable list.
   // Doubles as the per-topic count source (the API doesn't return counts).
   const conceptsByCluster = useMemo(() => {
@@ -275,6 +255,32 @@ export function NavSidebar({
       }))
       .sort((a, b) => b.count - a.count)
   }, [graph.clusters, conceptsByCluster])
+
+  // A topic's colour (palette default + per-topic override) and its hidden state,
+  // both derived from settings — the sidebar Topics rows are the single home for
+  // colour and visibility. The canvas derives the same colour from the same inputs,
+  // so the two stay in sync without sharing a function.
+  const topicFallback = useMemo(() => clusterColorMap(graph.clusters), [graph.clusters])
+  const topicColor = useCallback(
+    (id: string) => topicColorOf(id, settings.topicColors, topicFallback),
+    [settings.topicColors, topicFallback],
+  )
+  const hiddenTopics = settings.filters.hiddenTopics
+  const onToggleTopicHidden = useCallback(
+    (id: string) =>
+      onChange({
+        filters: {
+          hiddenTopics: hiddenTopics.includes(id)
+            ? hiddenTopics.filter((x) => x !== id)
+            : [...hiddenTopics, id],
+        },
+      }),
+    [hiddenTopics, onChange],
+  )
+  const onPickTopicColor = useCallback(
+    (id: string, color: string) => onChange({ topicColors: { [id]: color } }),
+    [onChange],
+  )
 
   return (
     <Sidebar collapsible="icon">
@@ -312,6 +318,25 @@ export function NavSidebar({
                 )}
                 <span className="flex-1">{busy ? 'Uploading…' : 'New document'}</span>
               </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              {/* Graph settings (Display / Forces / Local graph) behind a gear —
+                  opened on demand so the sidebar stays short. */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <SidebarMenuButton title="Graph settings">
+                    <Settings className="text-muted-foreground" />
+                    <span className="flex-1">Graph settings</span>
+                  </SidebarMenuButton>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="start"
+                  className="max-h-[70vh] w-64 overflow-y-auto"
+                >
+                  <GraphControls settings={settings} onChange={onChange} />
+                </PopoverContent>
+              </Popover>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
@@ -445,6 +470,7 @@ export function NavSidebar({
                 {clusterRows.map((cl) => {
                   const isOpen = expanded.has(cl.id)
                   const concepts = conceptsByCluster.get(cl.id) ?? []
+                  const hidden = hiddenTopics.includes(cl.id)
                   return (
                     <SidebarMenuItem key={cl.id} className="group/row">
                       <SidebarMenuButton
@@ -454,13 +480,45 @@ export function NavSidebar({
                         onMouseEnter={() => onHoverTopic(cl.id)}
                         onMouseLeave={() => onHoverTopic(null)}
                         title="Hover to highlight on the canvas; click to expand"
+                        className={cn(hidden && 'opacity-50')}
                       >
-                        <span
-                          className="size-2.5 shrink-0 rounded-full"
-                          style={{ background: colorOf(cl.id) }}
-                        />
+                        {/* Colour dot doubles as the topic's colour picker. It's a
+                            span (not a button) because the row is already a button;
+                            stopPropagation keeps a colour click from expanding it. */}
+                        <ColorPicker
+                          color={topicColor(cl.id)}
+                          onPick={(color) => onPickTopicColor(cl.id, color)}
+                        >
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Change topic colour"
+                            title="Change topic colour"
+                            onClick={(e) => e.stopPropagation()}
+                            className="size-2.5 shrink-0 cursor-pointer rounded-full transition-transform hover:scale-125"
+                            style={{ background: topicColor(cl.id) }}
+                          />
+                        </ColorPicker>
                         <span className="flex-1 truncate">
                           {cl.label ?? 'Unlabeled'}
+                        </span>
+                        {/* Show/hide this topic on the canvas (syncs the Topics filter). */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label={hidden ? 'Show topic on canvas' : 'Hide topic on canvas'}
+                          title={hidden ? 'Show on canvas' : 'Hide on canvas'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onToggleTopicHidden(cl.id)
+                          }}
+                          className={cn(
+                            'flex size-4 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 transition-opacity hover:text-sidebar-foreground',
+                            'opacity-0 group-hover/row:opacity-100 group-data-[collapsible=icon]:hidden',
+                            hidden && 'opacity-100',
+                          )}
+                        >
+                          {hidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                         </span>
                         <span className={ROW_COUNT}>{cl.count}</span>
                       </SidebarMenuButton>

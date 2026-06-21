@@ -5,7 +5,8 @@ import { useTheme } from 'next-themes'
 import { forceCollide, forceX, forceY } from 'd3-force'
 import { Flag, Highlighter, Maximize2, SquareArrowOutUpRight, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { GraphData, GraphNode } from '@/lib/api'
-import { type GraphSettings, groupColorOf } from '@/lib/graph-settings'
+import { type GraphSettings, topicColorOf } from '@/lib/graph-settings'
+import { clusterColorMap } from '@/lib/cluster-color'
 
 // react-force-graph-2d touches `window` at import time, so it must load only on
 // the client. We import it inside an effect (rather than next/dynamic) so we can
@@ -40,7 +41,7 @@ type FGNode = GraphNode & {
 type FGLink = { source: string | FGNode; target: string | FGNode; weight: number }
 
 // Per-theme chrome. `node` is the default monochrome dot colour (Obsidian paints
-// every node one neutral grey; colour comes only from user Groups); `accent` is
+// every node one neutral grey; colour comes from its topic); `accent` is
 // the focused/selected node and the hover ring (Obsidian's purple). The rest are
 // label text colours, the soft text shadow that lifts labels off the canvas, the
 // link shades, and the dim level for nodes outside the highlight set.
@@ -137,6 +138,9 @@ export function GraphCanvas({
   // Passive camera: fit the view only on first layout, never on a drag/add/refetch
   // re-heat. onEngineStop consumes this once.
   const pendingFitRef = useRef(true)
+  // True while a node is being dragged — syncLabels skips its O(n²) de-overlap
+  // pass during the drag (the sim runs hot, every frame) to keep it smooth.
+  const draggingRef = useRef(false)
 
   const [Comp, setComp] = useState<ForceGraphComponent | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -217,40 +221,8 @@ export function GraphCanvas({
     return m
   }, [graphData])
 
-  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×).
-  const radiusOf = useCallback(
-    (n: FGNode) => {
-      const mult = Math.max(0.3, settings.display.nodeSize * 2)
-      return (4 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 1.6) * mult
-    },
-    [degreeOf, settings.display.nodeSize],
-  )
-
-  // Fill colour: selected → accent (Obsidian's focused node); else the first
-  // matching Group's colour; else the default monochrome grey.
-  const colorOf = useCallback(
-    (n: FGNode) => {
-      if (n.id === selectedId) return c.accent
-      return groupColorOf(n.name, settings.groups) ?? c.node
-    },
-    [selectedId, settings.groups, c.accent, c.node],
-  )
-
-  // A node is visible when it matches the Search filter and — unless Orphans is on
-  // — has at least one connection. Drives both nodeVisibility and the label layer,
-  // so hidden nodes also lose their labels. Hiding (not removing) keeps the layout
-  // stable: filtering never re-heats the simulation.
-  const nodeVisible = useCallback(
-    (n: FGNode) => {
-      const q = settings.filters.search.trim().toLowerCase()
-      if (q && !n.name.toLowerCase().includes(q)) return false
-      if (!settings.filters.orphans && (degreeOf.get(n.id) ?? 0) === 0) return false
-      return true
-    },
-    [settings.filters.search, settings.filters.orphans, degreeOf],
-  )
-
-  // Adjacency over the render graph (for hover/sidebar highlight propagation).
+  // Adjacency over the render graph (for hover/sidebar highlight propagation and
+  // the Local-graph BFS).
   const neighbors = useMemo(() => {
     const m = new Map<string, Set<string>>()
     for (const n of graphData.nodes) m.set(n.id, new Set())
@@ -262,6 +234,64 @@ export function GraphCanvas({
     }
     return m
   }, [graphData])
+
+  // Local graph: the selected concept's `depth`-hop neighbourhood (Obsidian's
+  // local view). null = global graph (mode off, or nothing selected → no-op).
+  const localSet = useMemo(() => {
+    if (!settings.local.enabled || !selectedId || !neighbors.has(selectedId)) return null
+    const depth = Math.max(1, Math.round(settings.local.depth))
+    const seen = new Set<string>([selectedId])
+    let frontier = [selectedId]
+    for (let d = 0; d < depth; d++) {
+      const next: string[] = []
+      for (const id of frontier)
+        for (const nb of neighbors.get(id) ?? [])
+          if (!seen.has(nb)) {
+            seen.add(nb)
+            next.push(nb)
+          }
+      frontier = next
+    }
+    return seen
+  }, [settings.local.enabled, settings.local.depth, selectedId, neighbors])
+
+  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×).
+  const radiusOf = useCallback(
+    (n: FGNode) => {
+      const mult = Math.max(0.3, settings.display.nodeSize * 2)
+      return (4 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 1.6) * mult
+    },
+    [degreeOf, settings.display.nodeSize],
+  )
+
+  // Default per-topic colour (shared with the sidebar swatches); topicColors
+  // overrides ride on top via topicColorOf.
+  const topicFallback = useMemo(() => clusterColorMap(data.clusters), [data.clusters])
+
+  // Fill colour, in priority order: selected → accent (Obsidian's focused node);
+  // the node's topic colour; else neutral grey.
+  const colorOf = useCallback(
+    (n: FGNode) => {
+      if (n.id === selectedId) return c.accent
+      if (n.cluster_id) return topicColorOf(n.cluster_id, settings.topicColors, topicFallback)
+      return c.node
+    },
+    [selectedId, settings.topicColors, topicFallback, c.accent, c.node],
+  )
+
+  // A node is visible unless Orphans is off and it has no connections, its topic is
+  // hidden, or Local graph excludes it. Drives both nodeVisibility and the label
+  // layer, so hidden nodes also lose their labels. Hiding (not removing) keeps the
+  // layout stable: filtering never re-heats the simulation.
+  const nodeVisible = useCallback(
+    (n: FGNode) => {
+      if (!settings.filters.orphans && (degreeOf.get(n.id) ?? 0) === 0) return false
+      if (n.cluster_id && settings.filters.hiddenTopics.includes(n.cluster_id)) return false
+      if (localSet && !localSet.has(n.id)) return false
+      return true
+    },
+    [settings.filters.orphans, settings.filters.hiddenTopics, degreeOf, localSet],
+  )
 
   // Highlight requested from the sidebar: hovering a topic lights all its concepts;
   // hovering a concept lights it + neighbours. Empty → null (no dimming).
@@ -324,33 +354,28 @@ export function GraphCanvas({
     const active = highlightIds != null
     // Higher "text fade threshold" → labels appear only when more zoomed in.
     const minLabelR = 0.5 + settings.display.textFade * 5
+    const dragging = draggingRef.current
 
-    const list = [...labelsRef.current.values()].filter(
+    const all = [...labelsRef.current.values()].filter(
       (v) => v.n.x != null && v.n.y != null,
     )
     // Snapshot live positions so the next data rebuild can seed them back (no relayout).
-    for (const v of list)
+    for (const v of all)
       posRef.current.set(v.n.id, { x: v.n.x as number, y: v.n.y as number })
-    // Focused (selected/hovered) first, then biggest dots — important labels claim
-    // space before the de-overlap pass culls the rest.
-    list.sort((a, b) => {
-      const fa = a.n.id === selectedId || a.n.id === hoverId
-      const fb = b.n.id === selectedId || b.n.id === hoverId
-      if (fa !== fb) return fa ? -1 : 1
-      return radiusOf(b.n) - radiusOf(a.n)
-    })
 
-    // Screen-space box of every dot, so a resting label avoids sitting on ANY node.
-    const dotBoxes: Box[] = list.map((v) => {
-      const p = fg.graph2ScreenCoords(v.n.x as number, v.n.y as number)
-      const r = radiusOf(v.n) * k
-      return { x0: p.x - r, y0: p.y - r, x1: p.x + r, y1: p.y + r }
-    })
-
-    const placed: Box[] = []
-    for (const v of list) {
+    // Cull to the labels that will actually show, THEN de-overlap only those — this
+    // bounds the O(n²) placement pass to visible labels (a handful when zoomed out
+    // or hovering), which is what keeps a big graph smooth while the sim runs hot.
+    type Cand = {
+      v: Label
+      sp: { x: number; y: number }
+      screenR: number
+      show: boolean
+      focus: boolean
+    }
+    const shown: Cand[] = []
+    for (const v of all) {
       const n = v.n
-      // Filtered-out nodes carry no label.
       if (!nodeVisible(n)) {
         v.el.style.display = 'none'
         continue
@@ -362,22 +387,44 @@ export function GraphCanvas({
         continue
       }
       const show = focus || active
-      // Tie label visibility to the dot's on-screen size: when zoomed so far out the
-      // dot is a speck, drop its label (Obsidian's text fade). Self-scales with zoom.
       const screenR = radiusOf(n) * k
+      // Obsidian's text fade: drop a resting label when its dot is a speck.
       if (!show && screenR < minLabelR) {
         v.el.style.display = 'none'
         continue
       }
+      shown.push({
+        v,
+        sp: fg.graph2ScreenCoords(n.x as number, n.y as number),
+        screenR,
+        show,
+        focus,
+      })
+    }
 
-      const sp = fg.graph2ScreenCoords(n.x as number, n.y as number)
+    // Focused first, then biggest — important labels claim space first.
+    shown.sort((a, b) => {
+      if (a.focus !== b.focus) return a.focus ? -1 : 1
+      return b.screenR - a.screenR
+    })
+
+    // Screen-space boxes of the shown dots, so a resting label avoids sitting on one.
+    const dotBoxes: Box[] = shown.map(({ sp, screenR }) => ({
+      x0: sp.x - screenR,
+      y0: sp.y - screenR,
+      x1: sp.x + screenR,
+      y1: sp.y + screenR,
+    }))
+
+    const placed: Box[] = []
+    for (const { v, sp, screenR, show } of shown) {
       const hw = v.w / 2
       const hh = LABEL_H / 2
 
       // Label-centre candidates around the dot, nearest-first: below, above, right,
-      // left, then the four diagonals. A resting label takes the first spot that
-      // clears both already-placed labels AND every dot; if nothing's free it still
-      // shows below — a label is never dropped. Focused/active labels always sit below.
+      // left, then the four diagonals. A resting label takes the first spot clear of
+      // both placed labels AND dots; if none, it still shows below. Focused labels
+      // always sit below.
       const oy = screenR + 7 + hh
       const ox = screenR + 7 + hw
       const dy = screenR + 6 + hh
@@ -400,7 +447,9 @@ export function GraphCanvas({
       })
 
       let [lx, ly] = centers[0]
-      if (!show) {
+      // Skip the de-overlap search while dragging (sim is hot, fires every frame) —
+      // resting labels just drop below their dot until the drag ends.
+      if (!show && !dragging) {
         const free = centers.find(([cx, cy]) => {
           const b = boxAt(cx, cy)
           return (
@@ -518,8 +567,13 @@ export function GraphCanvas({
             e.preventDefault()
             setMenu({ x: e.clientX, y: e.clientY, node: n })
           }}
+          // While dragging, syncLabels degrades (skips de-overlap) to stay smooth.
+          onNodeDrag={() => {
+            draggingRef.current = true
+          }}
           // Pin a node where the user drops it; cache so a later rebuild resumes it.
           onNodeDragEnd={(n: FGNode) => {
+            draggingRef.current = false
             n.fx = n.x
             n.fy = n.y
             if (n.x != null && n.y != null)
