@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
-import { forceCollide } from 'd3-force'
+import { forceCollide, forceX, forceY } from 'd3-force'
+import { Flag, Highlighter, Maximize2, SquareArrowOutUpRight, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { GraphData, GraphNode } from '@/lib/api'
-import { clusterColorMap } from '@/lib/cluster-color'
+import { type GraphSettings, groupColorOf } from '@/lib/graph-settings'
 
 // react-force-graph-2d touches `window` at import time, so it must load only on
 // the client. We import it inside an effect (rather than next/dynamic) so we can
-// hold a ref to the instance and drive the camera (zoomToFit / centerAt) and read
+// hold a ref to the instance and drive the camera (zoomToFit / zoom) and read
 // node→screen coordinates for the HTML label layer.
 type ForceGraphComponent = React.ComponentType<Record<string, unknown>>
 // A d3 force we tweak (charge/link/collide); methods return the force for chaining.
@@ -17,53 +18,52 @@ type ForceObj = {
   distance?: (v: number) => ForceObj
 }
 type ForceGraphHandle = {
-  zoomToFit: (
-    ms?: number,
-    pad?: number,
-    nodeFilter?: (n: FGNode) => boolean,
-  ) => void
-  centerAt: (x?: number, y?: number, ms?: number) => void
+  zoomToFit: (ms?: number, pad?: number, nodeFilter?: (n: FGNode) => boolean) => void
   // Getter (no args) returns the current zoom; setter (z, ms) animates to it.
   zoom: (z?: number, ms?: number) => number
-  // One arg gets a named force to tweak; a second arg sets one (e.g. collide).
+  // One arg gets a named force to tweak; a second arg sets one (null removes it).
   d3Force: (name: string, force?: unknown) => ForceObj | undefined
+  // Kick the simulation back to life after the forces change.
+  d3ReheatSimulation: () => void
   // Map a node's world (x,y) to on-screen CSS pixels — drives the HTML label layer.
   graph2ScreenCoords: (x: number, y: number) => { x: number; y: number }
 }
 
 // The library augments each node object in place with x/y once it lays them out.
-// A node is either a concept (from the API) or a synthetic cluster super-node
-// (isCluster) standing in for a collapsed cluster; `count` is its member tally.
 type FGNode = GraphNode & {
   x?: number
   y?: number
-  isCluster?: boolean
-  count?: number
+  // Fixed position: when set, d3-force holds the node here every tick (pinning).
+  fx?: number
+  fy?: number
 }
 type FGLink = { source: string | FGNode; target: string | FGNode; weight: number }
 
-// Per-theme chrome (everything NOT coloured by cluster). Node dots wear their
-// cluster hue via `colorOf`; this holds the label text colours, the soft text
-// shadow that lifts labels off the canvas, the selection ring, link shades, and
-// the dim level for nodes outside the highlight set.
+// Per-theme chrome. `node` is the default monochrome dot colour (Obsidian paints
+// every node one neutral grey; colour comes only from user Groups); `accent` is
+// the focused/selected node and the hover ring (Obsidian's purple). The rest are
+// label text colours, the soft text shadow that lifts labels off the canvas, the
+// link shades, and the dim level for nodes outside the highlight set.
 const DARK = {
-  bg: '#1e1e1e', // Obsidian default dark canvas (neutral, not blue-black)
-  dim: 0.18, // opacity of node dots outside the highlight set
-  label: '#c8ccd2', // resting label text
-  labelHi: '#ffffff', // hovered / highlighted label text
+  bg: '#1e1e1e', // Obsidian default dark canvas
+  node: '#bcc1cb', // default monochrome node
+  accent: '#8b6cef', // focused/selected node + hover ring (Obsidian purple)
+  dim: 0.1, // opacity of node dots outside the highlight set
+  label: '#c8ccd2',
+  labelHi: '#ffffff',
   labelShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.9)',
-  selStroke: 'rgba(255,255,255,0.95)', // ring on the hovered / selected node
-  link: 'rgba(176,182,191,0.38)', // resting link — visible, not faint
-  linkOn: 'rgba(214,218,224,0.72)', // lit link (touches active node / inside focus)
-  linkOff: 'rgba(176,182,191,0.06)', // link outside the highlight, nearly gone
+  link: 'rgba(176,182,191,0.38)',
+  linkOn: 'rgba(214,218,224,0.72)',
+  linkOff: 'rgba(176,182,191,0.06)',
 }
 const LIGHT = {
   bg: '#ffffff',
-  dim: 0.2,
+  node: '#73777f',
+  accent: '#7c6fdc',
+  dim: 0.12,
   label: '#3a3f47',
-  labelHi: '#0f1216', // on white, emphasis is darker
+  labelHi: '#0f1216',
   labelShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 2px rgba(255,255,255,0.95)',
-  selStroke: 'rgba(26,29,34,0.9)',
   link: 'rgba(70,76,86,0.32)',
   linkOn: 'rgba(50,56,66,0.62)',
   linkOff: 'rgba(70,76,86,0.06)',
@@ -75,15 +75,11 @@ const LIGHT = {
 const LABEL_CSS =
   'position:absolute;left:0;top:0;white-space:nowrap;pointer-events:none;' +
   'will-change:transform;font-family:ui-sans-serif,system-ui,sans-serif;' +
-  '-webkit-font-smoothing:antialiased;line-height:1;'
+  '-webkit-font-smoothing:antialiased;line-height:1;font-size:12px;font-weight:500;'
 
 const endpointId = (e: string | FGNode) => (typeof e === 'object' ? e.id : e)
-// Cluster super-nodes are drawn distinctly larger than concept dots.
-const radiusOf = (n: FGNode) =>
-  n.isCluster ? 10 + Math.sqrt(n.count ?? 1) * 2.5 : 5 + Math.sqrt(n.mentions) * 1.8
 
-// Approximate label height in CSS px (font ~12–13px, line-height:1) — used to
-// build each candidate placement box.
+// Approximate label height in CSS px (font ~12px, line-height:1).
 const LABEL_H = 15
 
 // A label's screen-space rectangle (CSS px) used only for de-overlap. `m` is the
@@ -95,31 +91,38 @@ const overlaps = (a: Box, b: Box, m = 3) =>
 // One HTML label element plus the cached node + measured width it tracks.
 type Label = { el: HTMLDivElement; w: number; n: FGNode }
 
+// Node right-click menu state: anchored at viewport coords, acting on one node.
+type Menu = { x: number; y: number; node: FGNode }
+
 export function GraphCanvas({
   data,
+  settings,
   selectedId,
   onSelectId,
-  focusedClusterId,
-  onFocusCluster,
   highlightClusterId,
   highlightConceptId,
   annotationsByConceptId,
+  canEdit = false,
+  onToggleHighlight,
+  onToggleFlag,
+  onDeleteConcept,
 }: {
   data: GraphData
+  /** The Obsidian-style control-panel state (filters, groups, display, forces). */
+  settings: GraphSettings
   selectedId: string | null
   onSelectId: (id: string | null) => void
-  /** Drilled-in cluster id, or null for the overview of cluster super-nodes. */
-  focusedClusterId: string | null
-  /** Focus a cluster (drill in) or pass null to return to the overview. */
-  onFocusCluster: (clusterId: string | null) => void
   /** Topic the sidebar is hovering — light all its member concepts. */
   highlightClusterId: string | null
   /** Concept the sidebar is hovering — light it and its neighbours. */
   highlightConceptId: string | null
-  /** Open mentor markers per concept: green ring = highlight, amber = flag.
-   *  Keyed by concept id, so markers show on concept dots (drill-in / unclustered),
-   *  not on overview cluster super-nodes. */
+  /** Open mentor markers per concept: green ring = highlight, amber = flag. */
   annotationsByConceptId?: Map<string, { highlight: boolean; flag: boolean }>
+  /** Mentor/owner — gates the editing items in the node right-click menu. */
+  canEdit?: boolean
+  onToggleHighlight?: (conceptId: string) => void
+  onToggleFlag?: (conceptId: string) => void
+  onDeleteConcept?: (conceptId: string) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<ForceGraphHandle | null>(null)
@@ -127,13 +130,21 @@ export function GraphCanvas({
   // mutate imperatively (creating/removing elements only when the node set changes).
   const layerRef = useRef<HTMLDivElement>(null)
   const labelsRef = useRef<Map<string, Label>>(new Map())
+  // Cache of each node's last-known world position (keyed by id). Seeded back onto
+  // rebuilt nodes in the graphData memo so a topology change re-heats from where
+  // nodes were (only new ones fly in) rather than re-exploding from the centre.
+  const posRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  // Passive camera: fit the view only on first layout, never on a drag/add/refetch
+  // re-heat. onEngineStop consumes this once.
+  const pendingFitRef = useRef(true)
 
   const [Comp, setComp] = useState<ForceGraphComponent | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
 
-  // resolvedTheme is undefined until mount → default to the dark palette (which
-  // is also the app default). Changing it only swaps colours, not layout.
+  // resolvedTheme is undefined until mount → default to the dark palette (also the
+  // app default). Changing it only swaps colours, not layout.
   const { resolvedTheme } = useTheme()
   const c = resolvedTheme === 'light' ? LIGHT : DARK
 
@@ -160,79 +171,86 @@ export function GraphCanvas({
     return () => ro.disconnect()
   }, [])
 
-  // cluster id -> colour (shared with the sidebar swatches); every node dot reads
-  // from here so a cluster wears the same hue on the canvas and in the sidebar.
-  const colorOf = useMemo(() => clusterColorMap(data.clusters), [data.clusters])
+  // Topology signature: the SET of node + edge ids (not their attributes). The
+  // graphData memo keys on this, so a refetch that returns the same shape yields
+  // the SAME graphData reference → force-graph does NOT re-heat → the layout stays
+  // put. Filters (search / orphans) do NOT rebuild this — they hide nodes via
+  // nodeVisibility instead, so filtering never re-lays-out the graph.
+  const topoSig = useMemo(() => {
+    const ns = data.nodes.map((n) => n.id).sort().join(',')
+    const es = data.links.map((l) => `${l.source}>${l.target}`).sort().join(',')
+    return `${ns}|${es}`
+  }, [data])
 
-  // Derived render graph in two modes (see the body): the overview collapses every
-  // cluster into one super-node; drilling into a cluster shows its concepts and the
-  // edges between them. Keyed on [data, focusedClusterId] — hover/select never
-  // rebuild this, so the layout is stable.
+  // Flat render graph: every concept and every edge, always. (No cluster
+  // super-nodes, no drill-in — Obsidian shows one global graph.) Nodes are seeded
+  // with their cached position so a topology-change re-heat resumes the layout.
   const graphData = useMemo(() => {
-    // Drill-in: show only the focused cluster's concepts and the edges between them
-    // (the dense intra-cluster links the overview hides — see clustering note).
-    if (focusedClusterId != null) {
-      const ids = new Set(
-        data.nodes.filter((n) => n.cluster_id === focusedClusterId).map((n) => n.id),
-      )
-      const nodes: FGNode[] = data.nodes
-        .filter((n) => ids.has(n.id))
-        .map((n) => ({ ...n }))
-      const links: FGLink[] = data.links
-        .filter((l) => ids.has(l.source) && ids.has(l.target))
-        .map((l) => ({ source: l.source, target: l.target, weight: l.weight }))
-      return { nodes, links }
-    }
-
-    // Overview: every clustered concept collapses into one cluster super-node;
-    // unclustered concepts show as dots. Links are re-routed to each endpoint's
-    // representative and aggregated; intra-cluster edges collapse away (they live
-    // inside the cluster — only cross-cluster edges remain between super-nodes).
-    const byId = new Map(data.nodes.map((n) => [n.id, n]))
-    const repOf = (id: string): string => {
-      const n = byId.get(id)
-      if (n && n.cluster_id) return `cluster:${n.cluster_id}`
-      return id
-    }
-
-    const nodes: FGNode[] = []
-    const counts = new Map<string, number>()
-    for (const n of data.nodes) {
-      if (n.cluster_id) {
-        counts.set(n.cluster_id, (counts.get(n.cluster_id) ?? 0) + 1)
-      } else {
-        nodes.push({ ...n }) // unclustered concept
+    const nodes: FGNode[] = data.nodes.map((n) => {
+      const copy: FGNode = { ...n }
+      const p = posRef.current.get(n.id)
+      if (p) {
+        copy.x = p.x
+        copy.y = p.y
       }
-    }
-    const labelOf = new Map(data.clusters.map((cl) => [cl.id, cl.label]))
-    for (const [cid, count] of counts) {
-      nodes.push({
-        id: `cluster:${cid}`,
-        name: labelOf.get(cid) ?? 'Unlabeled',
-        description: null,
-        cluster_id: cid,
-        mentions: count,
-        isCluster: true,
-        count,
-      })
-    }
+      return copy
+    })
+    const present = new Set(nodes.map((n) => n.id))
+    const links: FGLink[] = data.links
+      .filter((l) => present.has(l.source) && present.has(l.target))
+      .map((l) => ({ source: l.source, target: l.target, weight: l.weight }))
+    return { nodes, links }
+    // topoSig (not data) gates rebuilds; data is read fresh in the closure when it does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topoSig])
 
-    const present = new Set(data.nodes.map((n) => n.id))
-    const agg = new Map<string, FGLink>()
-    for (const l of data.links) {
-      if (!present.has(l.source) || !present.has(l.target)) continue
-      const s = repOf(l.source)
-      const t = repOf(l.target)
-      if (s === t) continue
-      const key = s < t ? `${s}--${t}` : `${t}--${s}`
-      const cur = agg.get(key)
-      if (cur) cur.weight += l.weight
-      else agg.set(key, { source: s, target: t, weight: l.weight })
+  // Degree (connection count) per node — Obsidian sizes nodes by it.
+  const degreeOf = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const n of graphData.nodes) m.set(n.id, 0)
+    for (const l of graphData.links) {
+      const s = endpointId(l.source)
+      const t = endpointId(l.target)
+      m.set(s, (m.get(s) ?? 0) + 1)
+      m.set(t, (m.get(t) ?? 0) + 1)
     }
-    return { nodes, links: [...agg.values()] }
-  }, [data, focusedClusterId])
+    return m
+  }, [graphData])
 
-  // Adjacency over the DERIVED graph (so super-node hover highlights correctly).
+  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×).
+  const radiusOf = useCallback(
+    (n: FGNode) => {
+      const mult = Math.max(0.3, settings.display.nodeSize * 2)
+      return (4 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 1.6) * mult
+    },
+    [degreeOf, settings.display.nodeSize],
+  )
+
+  // Fill colour: selected → accent (Obsidian's focused node); else the first
+  // matching Group's colour; else the default monochrome grey.
+  const colorOf = useCallback(
+    (n: FGNode) => {
+      if (n.id === selectedId) return c.accent
+      return groupColorOf(n.name, settings.groups) ?? c.node
+    },
+    [selectedId, settings.groups, c.accent, c.node],
+  )
+
+  // A node is visible when it matches the Search filter and — unless Orphans is on
+  // — has at least one connection. Drives both nodeVisibility and the label layer,
+  // so hidden nodes also lose their labels. Hiding (not removing) keeps the layout
+  // stable: filtering never re-heats the simulation.
+  const nodeVisible = useCallback(
+    (n: FGNode) => {
+      const q = settings.filters.search.trim().toLowerCase()
+      if (q && !n.name.toLowerCase().includes(q)) return false
+      if (!settings.filters.orphans && (degreeOf.get(n.id) ?? 0) === 0) return false
+      return true
+    },
+    [settings.filters.search, settings.filters.orphans, degreeOf],
+  )
+
+  // Adjacency over the render graph (for hover/sidebar highlight propagation).
   const neighbors = useMemo(() => {
     const m = new Map<string, Set<string>>()
     for (const n of graphData.nodes) m.set(n.id, new Set())
@@ -245,45 +263,23 @@ export function GraphCanvas({
     return m
   }, [graphData])
 
-  // Map a real concept id to the node id actually rendered right now: itself when
-  // its cluster is drilled in, otherwise the cluster super-node standing in for it
-  // in the overview. null = not currently on screen.
-  const renderedIdOf = (conceptId: string): string | null => {
-    const n = data.nodes.find((x) => x.id === conceptId)
-    if (!n) return null
-    if (focusedClusterId != null)
-      return n.cluster_id === focusedClusterId ? conceptId : null
-    return n.cluster_id ? `cluster:${n.cluster_id}` : conceptId
-  }
-
-  // Highlight requested from the sidebar (hovering a topic row or a concept row),
-  // translated to ids that exist in the current render. Empty → null, so hovering
-  // something that's off-screen doesn't dim the whole canvas.
+  // Highlight requested from the sidebar: hovering a topic lights all its concepts;
+  // hovering a concept lights it + neighbours. Empty → null (no dimming).
   const externalHighlight = useMemo(() => {
-    const present = new Set(graphData.nodes.map((n) => n.id))
     let raw: string[] = []
     if (highlightClusterId) {
-      if (focusedClusterId != null) {
-        // In drill-in every rendered dot belongs to the focused cluster, so light
-        // them all only when that's the topic being hovered.
-        raw = highlightClusterId === focusedClusterId
-          ? graphData.nodes.map((n) => n.id)
-          : []
-      } else {
-        raw = [`cluster:${highlightClusterId}`] // overview super-node
-      }
-    } else if (highlightConceptId) {
-      const rid = renderedIdOf(highlightConceptId)
-      if (rid) raw = [rid, ...(neighbors.get(rid) ?? [])]
+      raw = graphData.nodes
+        .filter((n) => n.cluster_id === highlightClusterId)
+        .map((n) => n.id)
+    } else if (highlightConceptId && neighbors.has(highlightConceptId)) {
+      raw = [highlightConceptId, ...(neighbors.get(highlightConceptId) ?? [])]
     }
-    const set = new Set(raw.filter((id) => present.has(id)))
+    const set = new Set(raw)
     return set.size ? set : null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightClusterId, highlightConceptId, focusedClusterId, graphData, neighbors])
+  }, [highlightClusterId, highlightConceptId, graphData, neighbors])
 
-  // Resting style unless something is active. Priority: the canvas's own hover,
-  // then the sidebar hover, then a persistent selection. Drill-in with nothing
-  // active leaves this null → every dot stays lit.
+  // Resting style unless something is active. Priority: canvas hover, then sidebar
+  // hover, then a persistent selection.
   const setOf = (id: string) => new Set<string>([id, ...(neighbors.get(id) ?? [])])
   const highlightIds = useMemo(() => {
     if (hoverId) return setOf(hoverId)
@@ -293,21 +289,22 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverId, selectedId, externalHighlight, neighbors])
 
-  // Spread nodes apart so labels stop piling: strong repulsion, long links, and a
-  // collision radius that reserves a whole label-width of room. The label sits
-  // centred under the dot, so keeping node centres ≥ half a label width apart
-  // means neighbouring below-labels can't overlap — this is what makes the layout
-  // breathe like Obsidian's. Widths come from the label-build effect (measured
-  // into labelsRef); until measured we fall back to a sane default.
+  // Apply the Forces panel to the simulation and re-heat. Repel = charge strength,
+  // Link distance/force = the link force, Center = a gentle pull toward the origin
+  // (replaces the default centering force so the slider actually controls it).
+  // collide reserves a label-width of room so labels don't pile (the spacer that
+  // makes the layout breathe like Obsidian's). Re-runs on a forces change, a node
+  // size change (collide radius), or a topology change.
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
-    // Gentle charge only unfolds the graph; the collide force is the real spacer,
-    // reserving a label-width of room around every node. Strong charge would fling
-    // nodes so far that zoomToFit clamps to minZoom and every dot shrinks to a
-    // speck — so keep it weak and let collide set a compact, even spacing.
-    fg.d3Force('charge')?.strength?.((n: FGNode) => (n.isCluster ? -300 : -120))
-    fg.d3Force('link')?.distance?.(45)
+    const f = settings.forces
+    fg.d3Force('charge')?.strength?.(-(30 + f.repel * 470))
+    fg.d3Force('link')?.distance?.(20 + f.linkDistance * 230)
+    fg.d3Force('link')?.strength?.(0.1 + f.linkForce * 0.9)
+    fg.d3Force('center', null) // drop the library's default centering
+    fg.d3Force('x', forceX(0).strength(f.center * 0.5))
+    fg.d3Force('y', forceY(0).strength(f.center * 0.5))
     fg.d3Force(
       'collide',
       forceCollide<FGNode>((n) => {
@@ -315,44 +312,27 @@ export function GraphCanvas({
         return Math.max(radiusOf(n) + 4, labelW / 2 + 6)
       }).strength(1),
     )
-  }, [Comp, graphData])
-
-  // Reveal a selected concept the overview has collapsed into its cluster
-  // super-node: drill into that cluster so the concept actually renders (then it
-  // can highlight + centre). Covers ⌘K search and the sidebar concept list alike,
-  // since both just set selectedId. Unclustered concepts already show as dots.
-  useEffect(() => {
-    if (!selectedId) return
-    const n = data.nodes.find((x) => x.id === selectedId)
-    if (!n || !n.cluster_id) return // unclustered → already on screen
-    if (focusedClusterId === n.cluster_id) return // already drilled in
-    if (renderedIdOf(selectedId) !== selectedId) onFocusCluster(n.cluster_id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, data, focusedClusterId])
-
-  // Centre the camera on the selected node (e.g. picked from search).
-  useEffect(() => {
-    if (!selectedId) return
-    const node = graphData.nodes.find((n) => n.id === selectedId)
-    if (node && node.x != null && node.y != null) {
-      fgRef.current?.centerAt(node.x, node.y, 600)
-      fgRef.current?.zoom(3, 600)
-    }
-  }, [selectedId, graphData])
+    fg.d3ReheatSimulation()
+  }, [Comp, settings.forces, radiusOf])
 
   // Position + show/hide every HTML label for the current frame. Called on each
-  // canvas frame (onRenderFramePost) and once after (re)building the elements, so
-  // labels track the live layout, zoom and pan. `k` is the current zoom.
+  // canvas frame (onRenderFramePost) and once after (re)building the elements.
+  // `k` is the current zoom. Label fade threshold comes from the Display slider.
   const syncLabels = (k: number) => {
     const fg = fgRef.current
     if (!fg) return
     const active = highlightIds != null
+    // Higher "text fade threshold" → labels appear only when more zoomed in.
+    const minLabelR = 0.5 + settings.display.textFade * 5
 
-    // Order: focused (selected/hovered) first, then biggest dots — so important
-    // labels claim space before the de-overlap pass culls the rest.
     const list = [...labelsRef.current.values()].filter(
       (v) => v.n.x != null && v.n.y != null,
     )
+    // Snapshot live positions so the next data rebuild can seed them back (no relayout).
+    for (const v of list)
+      posRef.current.set(v.n.id, { x: v.n.x as number, y: v.n.y as number })
+    // Focused (selected/hovered) first, then biggest dots — important labels claim
+    // space before the de-overlap pass culls the rest.
     list.sort((a, b) => {
       const fa = a.n.id === selectedId || a.n.id === hoverId
       const fb = b.n.id === selectedId || b.n.id === hoverId
@@ -360,8 +340,7 @@ export function GraphCanvas({
       return radiusOf(b.n) - radiusOf(a.n)
     })
 
-    // Screen-space box of every dot, so a resting label can avoid sitting on ANY
-    // node, not just on other labels. Computed once per frame.
+    // Screen-space box of every dot, so a resting label avoids sitting on ANY node.
     const dotBoxes: Box[] = list.map((v) => {
       const p = fg.graph2ScreenCoords(v.n.x as number, v.n.y as number)
       const r = radiusOf(v.n) * k
@@ -371,6 +350,11 @@ export function GraphCanvas({
     const placed: Box[] = []
     for (const v of list) {
       const n = v.n
+      // Filtered-out nodes carry no label.
+      if (!nodeVisible(n)) {
+        v.el.style.display = 'none'
+        continue
+      }
       const focus = n.id === selectedId || n.id === hoverId
       // When something is active, only its highlight set is labelled.
       if (active && !highlightIds.has(n.id)) {
@@ -378,11 +362,10 @@ export function GraphCanvas({
         continue
       }
       const show = focus || active
-      // Tie label visibility to the dot's on-screen size: when zoomed so far out
-      // the dot is a speck, drop its label so the overview stays clean. Self-scales
-      // (unlike a fixed zoom threshold) so labels are present at the fitted zoom.
+      // Tie label visibility to the dot's on-screen size: when zoomed so far out the
+      // dot is a speck, drop its label (Obsidian's text fade). Self-scales with zoom.
       const screenR = radiusOf(n) * k
-      if (!show && screenR < 0.8) {
+      if (!show && screenR < minLabelR) {
         v.el.style.display = 'none'
         continue
       }
@@ -391,11 +374,10 @@ export function GraphCanvas({
       const hw = v.w / 2
       const hh = LABEL_H / 2
 
-      // Label-centre candidates around the dot, nearest-first: below, above,
-      // right, left, then the four diagonals — "put it wherever there's room".
-      // A resting label takes the first spot that clears both already-placed
-      // labels AND every dot. If nothing is free it still shows below — a label
-      // is never dropped. Focused/active labels always sit below.
+      // Label-centre candidates around the dot, nearest-first: below, above, right,
+      // left, then the four diagonals. A resting label takes the first spot that
+      // clears both already-placed labels AND every dot; if nothing's free it still
+      // shows below — a label is never dropped. Focused/active labels always sit below.
       const oy = screenR + 7 + hh
       const ox = screenR + 7 + hw
       const dy = screenR + 6 + hh
@@ -437,8 +419,8 @@ export function GraphCanvas({
   }
 
   // Build / tear down the label elements when the node set or theme changes.
-  // Elements live across hover/zoom (only their transform is touched per frame),
-  // so this runs rarely. Width is measured once here and cached for de-overlap.
+  // Elements live across hover/zoom (only their transform is touched per frame).
+  // Width is measured once here and cached for de-overlap.
   useEffect(() => {
     const layer = layerRef.current
     if (!layer) return
@@ -460,10 +442,8 @@ export function GraphCanvas({
         map.set(n.id, v)
       }
       v.n = n
-      v.el.style.fontSize = n.isCluster ? '13px' : '12px'
-      v.el.style.fontWeight = n.isCluster ? '600' : '500'
       v.el.style.textShadow = c.labelShadow
-      v.el.textContent = n.isCluster ? `${n.name} · ${n.count}` : n.name
+      v.el.textContent = n.name
       v.w = v.el.offsetWidth // measure once (one reflow); cached for de-overlap
     }
     // Place immediately so a settled graph (e.g. after a theme toggle) shows labels
@@ -472,22 +452,29 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphData, resolvedTheme, Comp])
 
-  // Label of the drilled-in cluster (for the back chip); null in the overview.
-  const focusedLabel = useMemo(() => {
-    if (focusedClusterId == null) return null
-    return data.clusters.find((cl) => cl.id === focusedClusterId)?.label ?? 'Unlabeled'
-  }, [focusedClusterId, data.clusters])
-
-  // Is a link "lit"? A link lights when both endpoints are in the highlight set,
-  // so it tracks canvas hover, sidebar hover and selection alike. `null` = nothing
-  // active, so links keep their resting style.
+  // Is a link "lit"? Lit when both endpoints are in the highlight set. null =
+  // nothing active, so links keep their resting style.
   const linkLit = (l: FGLink): boolean | null => {
     if (!highlightIds) return null
     return (
-      highlightIds.has(endpointId(l.source)) &&
-      highlightIds.has(endpointId(l.target))
+      highlightIds.has(endpointId(l.source)) && highlightIds.has(endpointId(l.target))
     )
   }
+  const linkColorOf = (l: FGLink) => {
+    const lit = linkLit(l)
+    if (lit == null) return c.link
+    return lit ? c.linkOn : c.linkOff
+  }
+
+  // Camera helpers for the bottom-right zoom controls.
+  const zoomBy = (factor: number) => {
+    const fg = fgRef.current
+    if (!fg) return
+    fg.zoom(fg.zoom() * factor, 200)
+  }
+  const fitView = () => fgRef.current?.zoomToFit(400, 70)
+
+  const ann = menu ? annotationsByConceptId?.get(menu.node.id) : undefined
 
   if (data.nodes.length === 0) {
     return (
@@ -507,6 +494,8 @@ export function GraphCanvas({
       ref={wrapRef}
       className="relative h-full w-full overflow-hidden bg-white dark:bg-[#1e1e1e]"
       style={{ cursor: hoverId ? 'pointer' : 'default' }}
+      // Suppress the browser menu so our node right-click menu is the only one.
+      onContextMenu={(e) => e.preventDefault()}
     >
       {Comp && size.w > 0 && size.h > 0 && (
         <Comp
@@ -519,40 +508,43 @@ export function GraphCanvas({
           minZoom={0.4}
           maxZoom={8}
           nodeLabel={() => ''}
+          nodeVisibility={(n: FGNode) => nodeVisible(n)}
+          linkVisibility={(l: FGLink) =>
+            nodeVisible(l.source as FGNode) && nodeVisible(l.target as FGNode)
+          }
           onNodeHover={(n: FGNode | null) => setHoverId(n ? n.id : null)}
-          onNodeClick={(n: FGNode) =>
-            n.isCluster && n.cluster_id
-              ? onFocusCluster(n.cluster_id) // drill into this cluster
-              : onSelectId(selectedId === n.id ? null : n.id)
-          }
-          onBackgroundClick={() =>
-            focusedClusterId != null ? onFocusCluster(null) : onSelectId(null)
-          }
+          onNodeClick={(n: FGNode) => onSelectId(selectedId === n.id ? null : n.id)}
+          onNodeRightClick={(n: FGNode, e: MouseEvent) => {
+            e.preventDefault()
+            setMenu({ x: e.clientX, y: e.clientY, node: n })
+          }}
+          // Pin a node where the user drops it; cache so a later rebuild resumes it.
+          onNodeDragEnd={(n: FGNode) => {
+            n.fx = n.x
+            n.fy = n.y
+            if (n.x != null && n.y != null)
+              posRef.current.set(n.id, { x: n.x, y: n.y })
+          }}
+          onBackgroundClick={() => {
+            setMenu(null)
+            onSelectId(null)
+          }}
           cooldownTicks={120}
           onEngineStop={() => {
-            // After a drill-in reveals the selected concept, centre on it rather
-            // than fitting the whole cluster (its coords are ready now the sim
-            // settled). No selection → frame everything as before.
-            const sel =
-              selectedId &&
-              graphData.nodes.find((n) => n.id === selectedId)
-            if (sel && sel.x != null && sel.y != null) {
-              fgRef.current?.centerAt(sel.x, sel.y, 600)
-              fgRef.current?.zoom(3, 600)
-            } else {
-              fgRef.current?.zoomToFit(400, 70)
-            }
+            if (!pendingFitRef.current) return
+            pendingFitRef.current = false
+            fgRef.current?.zoomToFit(400, 70)
           }}
-          linkColor={(l: FGLink) => {
-            const lit = linkLit(l)
-            if (lit == null) return c.link
-            return lit ? c.linkOn : c.linkOff
+          linkColor={(l: FGLink) => linkColorOf(l)}
+          linkWidth={(l: FGLink) => {
+            const t = 0.5 + settings.display.linkThickness * 2
+            return linkLit(l)
+              ? Math.min((1.2 + l.weight * 0.6) * t, 6)
+              : Math.min((0.7 + l.weight * 0.45) * t, 5)
           }}
-          linkWidth={(l: FGLink) =>
-            linkLit(l)
-              ? Math.min(1.2 + l.weight * 0.6, 5)
-              : Math.min(0.7 + l.weight * 0.45, 4)
-          }
+          linkDirectionalArrowLength={settings.display.arrows ? 3.5 : 0}
+          linkDirectionalArrowRelPos={1}
+          linkDirectionalArrowColor={(l: FGLink) => linkColorOf(l)}
           nodePointerAreaPaint={(
             n: FGNode,
             color: string,
@@ -572,45 +564,43 @@ export function GraphCanvas({
           ) => {
             const x = n.x ?? 0
             const y = n.y ?? 0
-            const active = highlightIds != null // something hovered/selected
+            const active = highlightIds != null
             const dim = active && !highlightIds.has(n.id)
             const isHover = n.id === hoverId
             const isSelected = n.id === selectedId
 
             // Hovered node grows a touch; the rest keep their size.
-            const r = radiusOf(n) * (isHover ? 1.22 : 1)
+            const r = radiusOf(n) * (isHover ? 1.15 : 1)
             ctx.globalAlpha = dim ? c.dim : 1
 
-            // Every dot wears its cluster colour (sidebar swatches match); concepts
-            // with no cluster fall back to the neutral grey inside colorOf.
             ctx.beginPath()
             ctx.arc(x, y, r, 0, 2 * Math.PI)
-            ctx.fillStyle = colorOf(n.cluster_id)
+            ctx.fillStyle = colorOf(n)
             ctx.fill()
 
-            // A thin ring marks the hovered or selected node (the open concept).
+            // Accent ring marks the hovered / selected node (Obsidian highlight).
             if (isSelected || isHover) {
               ctx.lineWidth = 1.5 / scale
-              ctx.strokeStyle = c.selStroke
+              ctx.strokeStyle = c.accent
               ctx.stroke()
             }
 
             // Mentor annotation markers — drawn at full opacity even on a dimmed
-            // node so a flagged direction is never washed out. Green ring =
-            // highlight (good direction); amber ring + corner badge = flag.
-            const ann = annotationsByConceptId?.get(n.id)
-            if (ann && (ann.highlight || ann.flag)) {
+            // node. Green ring = highlight (good direction); amber ring + corner
+            // badge = flag.
+            const a = annotationsByConceptId?.get(n.id)
+            if (a && (a.highlight || a.flag)) {
               ctx.globalAlpha = 1
-              if (ann.highlight) {
+              if (a.highlight) {
                 ctx.beginPath()
                 ctx.arc(x, y, r + 3 / scale, 0, 2 * Math.PI)
                 ctx.lineWidth = 2 / scale
                 ctx.strokeStyle = '#22c55e'
                 ctx.stroke()
               }
-              if (ann.flag) {
+              if (a.flag) {
                 ctx.beginPath()
-                ctx.arc(x, y, r + (ann.highlight ? 6 : 3) / scale, 0, 2 * Math.PI)
+                ctx.arc(x, y, r + (a.highlight ? 6 : 3) / scale, 0, 2 * Math.PI)
                 ctx.lineWidth = 2 / scale
                 ctx.strokeStyle = '#f59e0b'
                 ctx.stroke()
@@ -627,19 +617,108 @@ export function GraphCanvas({
           }
         />
       )}
+
       {/* HTML label overlay — native text, never blurred by the canvas zoom. */}
       <div ref={layerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
-      {/* Drill-in breadcrumb — return to the cluster overview. */}
-      {focusedLabel != null && (
-        <button
-          type="button"
-          onClick={() => onFocusCluster(null)}
-          className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
-        >
-          <span aria-hidden>←</span>
-          <span className="max-w-[220px] truncate">{focusedLabel}</span>
-        </button>
+
+      {/* Bottom-right zoom controls (Obsidian graph chrome). */}
+      <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1">
+        {[
+          { key: 'in', icon: ZoomIn, label: 'Zoom in', onClick: () => zoomBy(1.3) },
+          { key: 'out', icon: ZoomOut, label: 'Zoom out', onClick: () => zoomBy(1 / 1.3) },
+          { key: 'fit', icon: Maximize2, label: 'Fit view', onClick: fitView },
+        ].map(({ key, icon: Icon, label, onClick }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={onClick}
+            aria-label={label}
+            title={label}
+            className="flex size-7 items-center justify-center rounded-md border border-border bg-background/80 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+          >
+            <Icon className="size-4" />
+          </button>
+        ))}
+      </div>
+
+      {/* Node right-click menu (Obsidian context menu). */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
+          <div
+            className="fixed z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <MenuItem
+              icon={SquareArrowOutUpRight}
+              label="Open"
+              onClick={() => {
+                onSelectId(menu.node.id)
+                setMenu(null)
+              }}
+            />
+            {canEdit && onToggleHighlight && (
+              <MenuItem
+                icon={Highlighter}
+                label={ann?.highlight ? 'Remove highlight' : 'Highlight'}
+                onClick={() => {
+                  onToggleHighlight(menu.node.id)
+                  setMenu(null)
+                }}
+              />
+            )}
+            {canEdit && onToggleFlag && (
+              <MenuItem
+                icon={Flag}
+                label={ann?.flag ? 'Remove flag' : 'Flag'}
+                onClick={() => {
+                  onToggleFlag(menu.node.id)
+                  setMenu(null)
+                }}
+              />
+            )}
+            {canEdit && onDeleteConcept && (
+              <MenuItem
+                icon={Trash2}
+                label="Delete"
+                destructive
+                onClick={() => {
+                  onDeleteConcept(menu.node.id)
+                  setMenu(null)
+                }}
+              />
+            )}
+          </div>
+        </>
       )}
     </div>
+  )
+}
+
+function MenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  destructive,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+  destructive?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors ' +
+        (destructive
+          ? 'text-destructive hover:bg-destructive/10'
+          : 'hover:bg-accent hover:text-accent-foreground')
+      }
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="flex-1 text-left">{label}</span>
+    </button>
   )
 }

@@ -8,15 +8,19 @@ import {
   type GraphData,
   type WorkspaceCard,
   contentTypeFor,
+  createAnnotation,
   createDocument,
   deleteClusters,
+  deleteConcept,
   deleteDocuments,
   getGraph,
   isProcessing,
   listAnnotations,
   listDocuments,
+  resolveAnnotation,
   uploadToS3,
 } from '@/lib/api'
+import { useGraphSettings } from '@/lib/graph-settings'
 import {
   ResizableHandle,
   ResizablePanel,
@@ -26,6 +30,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppTopbar } from './AppTopbar'
 import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
+import { GraphControls } from './GraphControls'
 import { GraphEditToolbar } from './GraphEditToolbar'
 import { ConceptPanel } from './ConceptDetail'
 import { SearchPalette } from './SearchPalette'
@@ -54,32 +59,14 @@ export function WorkspaceView({
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
 
-  // Cluster drill-in: null = overview (every cluster collapses to one super-node);
-  // an id = focus that cluster, showing only its concepts and the edges between
-  // them. Clicking the focused cluster again — or the canvas background / back
-  // chip — returns to the overview.
-  const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null)
-  const onFocusCluster = useCallback(
-    (id: string | null) => setFocusedClusterId((prev) => (prev === id ? null : id)),
-    [],
-  )
-
   // Sidebar→canvas highlight: hovering a topic row lights all its concepts,
   // hovering a concept row lights it + neighbours. At most one is set at a time.
   const [hoverTopicId, setHoverTopicId] = useState<string | null>(null)
   const [hoverConceptId, setHoverConceptId] = useState<string | null>(null)
 
-  // A deleted cluster can leave focusedClusterId dangling. Rather than write state
-  // from an effect, derive the effective focus: a focus on a cluster no longer in
-  // the graph reads as "no focus" (back to the overview). Same self-healing shape
-  // as selectedNode below.
-  const effectiveFocusedClusterId = useMemo(
-    () =>
-      focusedClusterId && graph.clusters.some((c) => c.id === focusedClusterId)
-        ? focusedClusterId
-        : null,
-    [focusedClusterId, graph.clusters],
-  )
+  // Obsidian-style graph control panel state (filters / groups / display /
+  // forces), persisted to localStorage per workspace.
+  const [settings, patchSettings] = useGraphSettings(workspaceId)
 
   const refreshDocs = useCallback(async () => {
     try {
@@ -214,6 +201,49 @@ export function WorkspaceView({
     [refreshGraph, workspaceId],
   )
 
+  // Node right-click menu actions. Toggle resolves the open marker if present,
+  // else creates one (mirrors ConceptAnnotations). Delete removes the concept and
+  // closes its panel if it was open.
+  const handleToggleAnnotation = useCallback(
+    async (conceptId: string, kind: 'highlight' | 'flag') => {
+      const existing = annotations.find(
+        (a) =>
+          !a.parent_id &&
+          a.status === 'open' &&
+          a.target_concept_id === conceptId &&
+          a.kind === kind,
+      )
+      try {
+        if (existing) await resolveAnnotation(existing.id)
+        else
+          await createAnnotation({
+            workspace_id: workspaceId,
+            target_type: 'concept',
+            target_concept_id: conceptId,
+            kind,
+          })
+        await refreshAnnotations()
+      } catch (e) {
+        toast.error((e as Error).message)
+      }
+    },
+    [annotations, workspaceId, refreshAnnotations],
+  )
+
+  const handleDeleteConcept = useCallback(
+    async (conceptId: string) => {
+      try {
+        await deleteConcept(conceptId)
+        setSelectedId((cur) => (cur === conceptId ? null : cur))
+        await refreshGraph()
+        toast.success('Concept deleted')
+      } catch (e) {
+        toast.error((e as Error).message)
+      }
+    },
+    [refreshGraph],
+  )
+
   const selectedNode = useMemo(
     () => graph.nodes.find((n) => n.id === selectedId) ?? null,
     [graph.nodes, selectedId],
@@ -278,8 +308,6 @@ export function WorkspaceView({
         currentId={workspaceId}
         email={email}
         onOpenSearch={() => setSearchOpen(true)}
-        focusedClusterId={effectiveFocusedClusterId}
-        onFocusCluster={onFocusCluster}
         onSelectConcept={setSelectedId}
         onHoverTopic={setHoverTopicId}
         onHoverConcept={setHoverConceptId}
@@ -307,15 +335,19 @@ export function WorkspaceView({
                   }}
                 />
               )}
+              <GraphControls settings={settings} onChange={patchSettings} />
               <GraphCanvas
                 data={graph}
+                settings={settings}
                 selectedId={selectedId}
                 onSelectId={setSelectedId}
-                focusedClusterId={effectiveFocusedClusterId}
-                onFocusCluster={onFocusCluster}
                 highlightClusterId={hoverTopicId}
                 highlightConceptId={hoverConceptId}
                 annotationsByConceptId={annotationsByConceptId}
+                canEdit={canEdit}
+                onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
+                onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
+                onDeleteConcept={handleDeleteConcept}
               />
             </main>
           </ResizablePanel>

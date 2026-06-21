@@ -183,8 +183,6 @@ export function NavSidebar({
   currentId,
   email,
   onOpenSearch,
-  focusedClusterId,
-  onFocusCluster,
   onSelectConcept,
   onHoverTopic,
   onHoverConcept,
@@ -201,8 +199,6 @@ export function NavSidebar({
   currentId: string | undefined
   email: string | null
   onOpenSearch: () => void
-  focusedClusterId: string | null
-  onFocusCluster: (id: string | null) => void
   onSelectConcept: (id: string) => void
   onHoverTopic: (id: string | null) => void
   onHoverConcept: (id: string | null) => void
@@ -453,14 +449,11 @@ export function NavSidebar({
                     <SidebarMenuItem key={cl.id} className="group/row">
                       <SidebarMenuButton
                         tooltip={cl.label ?? 'Unlabeled'}
-                        isActive={
-                          focusedClusterId === cl.id ||
-                          selectedClusters.has(cl.id)
-                        }
-                        onClick={() => onFocusCluster(cl.id)}
+                        isActive={selectedClusters.has(cl.id)}
+                        onClick={() => setExpanded((s) => toggleIn(s, cl.id))}
                         onMouseEnter={() => onHoverTopic(cl.id)}
                         onMouseLeave={() => onHoverTopic(null)}
-                        title="Click to focus this topic on the canvas"
+                        title="Hover to highlight on the canvas; click to expand"
                       >
                         <span
                           className="size-2.5 shrink-0 rounded-full"
