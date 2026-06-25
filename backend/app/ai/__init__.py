@@ -15,6 +15,12 @@ from app.ai.merge import (
     match_concept,
     merge_descriptions,
 )
+from app.ai.select_core import (
+    CandidateConcept,
+    CoreSelection,
+    select_core_concepts,
+)
+from app.ai.summarize import summarize_document
 
 __all__ = [
     "embed_text",
@@ -29,4 +35,8 @@ __all__ = [
     "merge_descriptions",
     "MergeDecision",
     "label_cluster",
+    "select_core_concepts",
+    "CandidateConcept",
+    "CoreSelection",
+    "summarize_document",
 ]

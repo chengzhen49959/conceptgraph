@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronRight,
   CircleAlert,
@@ -20,6 +20,8 @@ import {
   type GraphData,
   type GraphNode,
   type WorkspaceCard,
+  isProcessing,
+  DOC_STATUS_LABEL,
 } from '@/lib/api'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -66,6 +68,72 @@ const ROW_CHECKBOX =
 // Right-aligned count inside a menu button; collapses away on the icon rail.
 const ROW_COUNT =
   'shrink-0 text-xs tabular-nums text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden'
+
+// Per-concept select checkbox on an expanded topic's concept rows. A sibling of
+// the row button (never nested — a checkbox inside a <button> is invalid), absolute
+// in the left gutter the row reserves via `pl-7`, so it never covers the name.
+// Hidden until the sub-row is hovered or the concept is already checked; the
+// sub-item is `relative group/menu-sub-item` (see ui/sidebar), which anchors this.
+const CONCEPT_CHECKBOX =
+  'absolute left-2 top-1/2 z-10 size-3 -translate-y-1/2 cursor-pointer accent-primary ' +
+  'opacity-0 transition-opacity group-hover/menu-sub-item:opacity-100'
+
+/** Rough ETA for the merge phase, derived from how fast `current` is climbing.
+ *
+ * Anchors on the first sample seen for this run (resets if `current` drops — a new
+ * document reusing the row), then extrapolates the remaining concepts at the average
+ * rate since the anchor. Deliberately coarse (5s / 1m buckets): per-concept LLM
+ * latency is too jittery for a precise countdown, and a wrong "~3s" that then stalls
+ * reads worse than an honest "~30s". Returns null until there's enough signal. */
+function useEta(
+  current: number | null | undefined,
+  total: number | null | undefined,
+): string | null {
+  const [eta, setEta] = useState<string | null>(null)
+  const anchor = useRef<{ t0: number; c0: number } | null>(null)
+  useEffect(() => {
+    if (current == null || total == null || total === 0) {
+      anchor.current = null
+      setEta(null)
+      return
+    }
+    const now = Date.now()
+    if (!anchor.current || current < anchor.current.c0) {
+      anchor.current = { t0: now, c0: current }
+      setEta(null)
+      return
+    }
+    const dc = current - anchor.current.c0
+    const dt = (now - anchor.current.t0) / 1000
+    if (dc <= 0 || dt < 1) return // not enough movement to estimate yet
+    const remaining = (total - current) / (dc / dt) // seconds
+    if (!isFinite(remaining) || remaining < 0) {
+      setEta(null)
+      return
+    }
+    setEta(
+      remaining < 60
+        ? `~${Math.ceil(remaining / 5) * 5}s`
+        : `~${Math.ceil(remaining / 60)}m`,
+    )
+  }, [current, total])
+  return eta
+}
+
+/** In-progress sub-line for a document: stage label, plus a live "30/62 · ~25s"
+ * during the merge phase (the only stage that reports a count). */
+function DocProgress({ doc }: { doc: DocumentOut }) {
+  const eta = useEta(doc.progress_current, doc.progress_total)
+  const label = DOC_STATUS_LABEL[doc.status]
+  const { progress_current: cur, progress_total: tot } = doc
+  if (cur == null || tot == null || tot === 0) return <>{label}…</>
+  return (
+    <>
+      {label} {cur}/{tot}
+      {eta ? ` · ${eta}` : ''}
+    </>
+  )
+}
 
 /** Compact terminal-state glyph for a document — denser than a full badge. */
 function DocStatusIcon({ status }: { status: DocumentOut['status'] }) {
@@ -165,6 +233,9 @@ export function NavSidebar({
   onHoverConcept,
   onDeleteDocuments,
   onDeleteClusters,
+  onDeleteConcepts,
+  onSelectDocument,
+  activeDocId,
   settings,
   onChange,
 }: {
@@ -183,6 +254,11 @@ export function NavSidebar({
   onHoverConcept: (id: string | null) => void
   onDeleteDocuments: (ids: string[]) => Promise<void>
   onDeleteClusters: (ids: string[]) => Promise<void>
+  onDeleteConcepts: (ids: string[]) => Promise<void>
+  /** Open a document in the reader view (a row's click). `activeDocId` marks the
+   *  one currently open; selection-for-delete stays on the per-row checkbox. */
+  onSelectDocument: (id: string) => void
+  activeDocId: string | null
   /** Graph control-panel state — drives the Topics rows' colour/visibility and the
    *  Filters / Display / Forces / Local graph sections rendered beneath them. */
   settings: GraphSettings
@@ -196,7 +272,12 @@ export function NavSidebar({
   // is just a delete of one). `pending` opens the shared confirmation dialog.
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
   const [selectedClusters, setSelectedClusters] = useState<Set<string>>(new Set())
-  const [pending, setPending] = useState<'documents' | 'clusters' | null>(null)
+  // Individual concepts checked across expanded topics (cherry-pick a few to delete
+  // instead of dropping a whole topic). Independent of the cluster selection above.
+  const [selectedConcepts, setSelectedConcepts] = useState<Set<string>>(new Set())
+  const [pending, setPending] = useState<'documents' | 'clusters' | 'concepts' | null>(
+    null,
+  )
   const [deleting, setDeleting] = useState(false)
 
   // Which topics are expanded to show their concept list inline.
@@ -211,15 +292,24 @@ export function NavSidebar({
 
   const confirmDelete = async () => {
     if (!pending) return
-    const ids = [...(pending === 'documents' ? selectedDocs : selectedClusters)]
+    const source =
+      pending === 'documents'
+        ? selectedDocs
+        : pending === 'clusters'
+          ? selectedClusters
+          : selectedConcepts
+    const ids = [...source]
     setDeleting(true)
     try {
       if (pending === 'documents') {
         await onDeleteDocuments(ids)
         setSelectedDocs(new Set())
-      } else {
+      } else if (pending === 'clusters') {
         await onDeleteClusters(ids)
         setSelectedClusters(new Set())
+      } else {
+        await onDeleteConcepts(ids)
+        setSelectedConcepts(new Set())
       }
       setPending(null)
     } finally {
@@ -244,6 +334,13 @@ export function NavSidebar({
     for (const arr of m.values()) arr.sort((a, b) => b.mentions - a.mentions)
     return m
   }, [graph.nodes])
+
+  // Every concept that appears under a topic — the universe the concept multi-select
+  // toolbar's select-all / invert act over.
+  const allConceptIds = useMemo(
+    () => graph.nodes.filter((n) => n.cluster_id).map((n) => n.id),
+    [graph.nodes],
+  )
 
   // Topic rows with their concept counts, biggest first.
   const clusterRows = useMemo(() => {
@@ -396,9 +493,10 @@ export function NavSidebar({
                 {documents.map((doc) => (
                   <SidebarMenuItem key={doc.id} className="group/row">
                     <SidebarMenuButton
+                      className="h-auto min-h-8 items-center"
                       tooltip={doc.title}
-                      isActive={selectedDocs.has(doc.id)}
-                      onClick={() => setSelectedDocs((s) => toggleIn(s, doc.id))}
+                      isActive={activeDocId === doc.id}
+                      onClick={() => onSelectDocument(doc.id)}
                       title={
                         doc.status === 'failed'
                           ? doc.error ?? 'failed'
@@ -406,7 +504,19 @@ export function NavSidebar({
                       }
                     >
                       <FileText className="text-muted-foreground" />
-                      <span className="flex-1 truncate">{doc.title}</span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate">{doc.title}</span>
+                        {isProcessing(doc.status) && (
+                          <span className="truncate text-[10px] leading-tight text-muted-foreground tabular-nums">
+                            <DocProgress doc={doc} />
+                          </span>
+                        )}
+                        {doc.status === 'failed' && (
+                          <span className="truncate text-[10px] leading-tight text-destructive">
+                            {doc.error ?? 'Failed'}
+                          </span>
+                        )}
+                      </span>
                       <DocStatusIcon status={doc.status} />
                     </SidebarMenuButton>
                     <input
@@ -451,6 +561,19 @@ export function NavSidebar({
               onClear={() => setSelectedClusters(new Set())}
               onDelete={() => setPending('clusters')}
             />
+          ) : selectedConcepts.size > 0 ? (
+            <SelectionToolbar
+              count={selectedConcepts.size}
+              allSelected={selectedConcepts.size === allConceptIds.length}
+              onSelectAll={() =>
+                setSelectedConcepts((s) => selectAllOrNone(s, allConceptIds))
+              }
+              onInvert={() =>
+                setSelectedConcepts((s) => invertSelection(s, allConceptIds))
+              }
+              onClear={() => setSelectedConcepts(new Set())}
+              onDelete={() => setPending('concepts')}
+            />
           ) : (
             <SectionLabel
               label="Topics"
@@ -479,7 +602,9 @@ export function NavSidebar({
                         onClick={() => setExpanded((s) => toggleIn(s, cl.id))}
                         onMouseEnter={() => onHoverTopic(cl.id)}
                         onMouseLeave={() => onHoverTopic(null)}
-                        title="Hover to highlight on the canvas; click to expand"
+                        // Full topic name on hover — the row truncates it, and this is
+                        // the only place the whole label is recoverable.
+                        title={cl.label ?? 'Unlabeled'}
                         className={cn(hidden && 'opacity-50')}
                       >
                         {/* Colour dot doubles as the topic's colour picker. It's a
@@ -558,7 +683,11 @@ export function NavSidebar({
                           ) : (
                             concepts.map((con) => (
                               <SidebarMenuSubItem key={con.id}>
-                                <SidebarMenuSubButton asChild>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={selectedConcepts.has(con.id)}
+                                  className="pl-7"
+                                >
                                   <button
                                     type="button"
                                     onClick={() => onSelectConcept(con.id)}
@@ -575,6 +704,22 @@ export function NavSidebar({
                                     </span>
                                   </button>
                                 </SidebarMenuSubButton>
+                                {/* Check to cherry-pick this concept for deletion (vs.
+                                    dropping the whole topic). A sibling of the button,
+                                    not nested; click stops here so it doesn't focus. */}
+                                <input
+                                  type="checkbox"
+                                  checked={selectedConcepts.has(con.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={() =>
+                                    setSelectedConcepts((s) => toggleIn(s, con.id))
+                                  }
+                                  aria-label={`Select ${con.name}`}
+                                  className={cn(
+                                    CONCEPT_CHECKBOX,
+                                    selectedConcepts.has(con.id) && 'opacity-100',
+                                  )}
+                                />
                               </SidebarMenuSubItem>
                             ))
                           )}
@@ -613,12 +758,16 @@ export function NavSidebar({
         title={
           pending === 'clusters'
             ? `Delete ${selectedClusters.size} topic${selectedClusters.size > 1 ? 's' : ''}?`
-            : `Delete ${selectedDocs.size} document${selectedDocs.size > 1 ? 's' : ''}?`
+            : pending === 'concepts'
+              ? `Delete ${selectedConcepts.size} concept${selectedConcepts.size > 1 ? 's' : ''}?`
+              : `Delete ${selectedDocs.size} document${selectedDocs.size > 1 ? 's' : ''}?`
         }
         description={
           pending === 'clusters'
             ? 'Every concept in these topics and their relationships are removed from the graph. The source documents are kept. This cannot be undone.'
-            : 'Their chunks, and any concepts only they mention, are removed from the graph. Concepts cited by other documents are kept. This cannot be undone.'
+            : pending === 'concepts'
+              ? 'These concepts and their relationships are removed from the graph. Their source documents are kept. This cannot be undone.'
+              : 'Their chunks, and any concepts only they mention, are removed from the graph. Concepts cited by other documents are kept. This cannot be undone.'
         }
         onConfirm={confirmDelete}
       />

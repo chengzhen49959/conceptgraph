@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db import get_engine
 from app.routers import (
+    activity,
     annotations,
     clusters,
     concepts,
@@ -14,8 +15,10 @@ from app.routers import (
     graph,
     graph_edit,
     health,
+    imports,
     invites,
     me,
+    search,
     workspaces,
 )
 
@@ -59,7 +62,7 @@ app = FastAPI(title="Concept Graph API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[get_settings().frontend_origin],
+    allow_origins=get_settings().cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,8 +73,11 @@ app.include_router(me.router)
 app.include_router(workspaces.router)
 app.include_router(invites.router)
 app.include_router(documents.router)
+app.include_router(imports.router)
 app.include_router(graph.router)
 app.include_router(graph_edit.router)
 app.include_router(annotations.router)
+app.include_router(activity.router)
 app.include_router(concepts.router)
 app.include_router(clusters.router)
+app.include_router(search.router)

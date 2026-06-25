@@ -1,5 +1,7 @@
 # ARC — Target Architecture (English)
 
+> **Product:** a **collaborative research concept-graph** — students grow a concept graph from their library; mentors review it asynchronously (highlight / flag / comment + direct graph edits with audit & undo). Project workspaces are shared by a reusable link with per-member roles. The architecture below serves both the ingestion/AI core and this async-collaboration layer. See `prd.md`.
+
 ## 1. Target Architecture Layers
 
 Three layers, two compute planes, one source of truth:
@@ -23,56 +25,100 @@ Division-of-labor principle: anything involving embedding / LLM / long-running c
 
 **Frontend (Next.js / Vercel)**
 - Amplify Auth — cookie-based SSR session, enforced by a proxy route guard (`src/proxy.ts`).
-- Graph view (react-force-graph).
+- Graph view (react-force-graph) + manual edit toolbar (create / edit / delete nodes & edges, undo); sidebar controls (filters / display / topics) with multi-select delete for documents, topics, **and individual concepts** (full names recoverable on hover via `title`). Hover/focus highlight eases in/out (canvas redraw gated to the transition via `autoPauseRedraw`, since the sim otherwise stops repainting at rest). Node clones are pinned to a topology signature so refetches don't re-heat the layout, but their `cluster_id` / `name` are re-synced in place from each refetch — so re-clustering (which mints new cluster ids every ingest) recolours the graph and keeps it consistent with the sidebar instead of greying out.
+- **Reading view** (`DocumentReader` / `LocalGraphMini`) — the source counterpart of the graph: opening a document from the sidebar swaps the canvas for its *original* source, branched on `source_url` (the same discriminator the backend sets — present only on web clips). A **file upload** renders its parsed Markdown, and every mention of one of *that document's* concepts becomes a clickable chip that selects the concept in the graph (inline provenance; a dependency-free rehype tree-walk splits text nodes on a name/alias alternation, skipping code spans + links — no char offsets are stored, so matching is by surface form). A **web clip** instead **embeds its original page** in an `iframe` of `source_url` (the user reads the live source, not the clipped text that fed the pipeline); the header keeps an "Original ↗" link as the fallback for sites that refuse framing. The full graph shrinks to a corner **local graph** of just that document's concepts (Obsidian's 关系图谱 pane, reframed per-document). Reader and full canvas are mutually exclusive so only one force sim runs at a time; a document deleted out from under the reader closes it via a derived value (no effect), mirroring `focusedCluster`.
+- Collaboration UI: project dashboard + workspace switcher, members / share panel, activity feed + annotation threads.
+- Async collaboration by **polling** (~2.5s refresh of graph + activity) — deliberately no WebSocket; a mentor's edits/annotations surface to the student on the next poll.
 - BFF layer: Route Handlers call the backend API; ISR caches graph data.
 - RAG streaming proxy: a Route Handler relays the backend SSE to the client.
 - Upload: request an S3 presigned URL from the backend; client uploads directly to S3.
+
+**Browser extension — Graph Clipper (Chrome MV3, standalone)**
+- A separate client shipped to the Chrome Web Store (not deployed on Vercel/Render, no app-core logic). Lets a user clip the page they're reading straight into a workspace graph.
+- Four entry points open the same docked side panel: toolbar icon, an in-page **floating button** (`content/fab.ts` — a declared content script that injects a draggable, Shadow-DOM-isolated clip button on every http(s) page; × dismisses it until the page reloads), the right-click menu, and `Ctrl/Cmd+Shift+S`. The floating button's click can't call `chrome.sidePanel.open()` from the page, so it's relayed to the background service worker. The relay alone is unreliable: a worker cold-started by that message opens the panel too late — the user-gesture flag lapses during startup, so `sidePanel.open()` is rejected (the FAB "sometimes did nothing" while the context menu, a gesture delivered straight to the worker, always worked). The button therefore opens a `fab-keepalive` port on _pointerdown_ that wakes and holds the worker warm for the press, so the _pointerup_ `OPEN_PANEL` lands on a live worker inside the gesture window — same shared open path as the context menu.
+- Only client-side processing is **main-content extraction → Markdown** (Mozilla Readability strips nav/ads/sidebar/footer; Turndown + GFM keeps headings / lists / tables / code, flattens links to their anchor text, and drops non-math images — full hrefs and decorative image markup are noise the concept extractor never reads and roughly **halve** the payload; **page math (MathML) is pulled to `$…$` / `$$…$$` LaTeX _before_ Readability runs — Readability scores `<math>` as non-content and strips it, so each equation is swapped for a text token first and restored after Markdown conversion, letting formulas survive on technical pages**) plus light **metadata scraping** (author / published date / site / og:image, incl. JSON-LD) — no AI runs in the extension. Selection mode converts only the highlighted HTML.
+- Reuses the web app's **Cognito** session: reads the id-token cookie on the app origin and refreshes via Cognito `REFRESH_TOKEN_AUTH` near expiry — no second login.
+- Submits clean Markdown + page URL + scraped metadata in one call to `POST /api/imports/clip`; never touches S3 (the backend writes it). Picks/creates a target **workspace** via the existing `/api/workspaces` endpoints.
 
 ## 3. Data Model
 
 > All rows belong to a workspace; concepts/chunks carry a pgvector column with an HNSW index. User identity (`owner_id`, `workspace_members.user_id`) is the Cognito `sub`.
 
-- **workspaces**(id, owner_id, type[private|shared], created_at)
-- **workspace_members**(workspace_id, user_id, role)
-- **documents**(id, workspace_id, title, source_type, status[pending|parsing|chunking|embedding|done|failed], created_at)
-- **chunks**(id, document_id, content, embedding vector)
-- **concepts**(id, workspace_id, name, canonical, description, embedding vector, cluster_id)
-- **concept_aliases**(concept_id, alias) — merged synonyms attach here instead of new nodes
+**Workspace & collaboration**
+- **workspaces**(id, owner_id, type[private|shared], name, icon, icon_color, created_at, updated_at)
+- **workspace_members**(workspace_id, user_id, role[owner|editor|commenter|viewer], last_seen_activity_at)
+- **workspace_share_links**(id, workspace_id, role, enabled, token, created_by, …) — one reusable, revocable invite link per workspace (email invites were dropped in migration 0008)
+
+**Documents & pipeline**
+- **documents**(id, workspace_id, title, source_type, status[pending|parsing|chunking|embedding|extracting|merging|clustering|done|failed], s3_key, error, **summary**, **summary_embedding** vector, **source_url**, **source_url_canonical**, **doc_metadata** jsonb, **body_markdown**, created_at) — `summary`/`summary_embedding` hold the aggregated doc-level summary (added in 0009); `source_url` is the web origin a clipped document came from, null for uploads (0011, provenance); `source_url_canonical` is the normalised URL used as the per-workspace clip **de-dup key** and `doc_metadata` the scraped page metadata (author/date/site/image), both null for uploads (0012); **body_markdown** is the full parsed source (Markdown — PDFs rendered, md/text decoded) kept for the **reading view**, lazily backfilled from S3 on first open for pre-0014 documents (0014)
+- **chunks**(id, document_id, content, content_hash, embedding vector)
+- **concepts**(id, workspace_id, name, canonical, **origin[extracted|manual]**, description, embedding vector, cluster_id) — a `manual` node is a hand-authored research-direction (question / hypothesis / next step) and carries no embedding
+- **concept_aliases**(concept_id, alias) — merged synonyms attach here instead of new nodes; also read on the resolve fast path
 - **concept_mentions**(concept_id, chunk_id, document_id) — provenance / citation source
-- **edges**(id, workspace_id, source_concept_id, target_concept_id, relation, weight) — repeated relations increment weight
-- **clusters**(id, workspace_id, label) — topic clusters from community detection, label auto-generated by LLM
+- **edges**(id, workspace_id, source_concept_id, target_concept_id, relation, **kind**, weight) — repeated edges increment weight; `kind` = `relation` (LLM-extracted, shown in the graph) or `cooccur` (same-chunk co-occurrence, a hidden substrate that densifies the cluster graph) (kind added in 0010)
+- **clusters**(id, workspace_id, label, **parent_id**) — topic clusters from community detection (LLM label); `parent_id` is the multi-level hierarchy — leaf clusters hold concepts, parents group leaves (added in 0009)
+
+**Review & activity (collaboration)**
+- **graph_audit**(id, workspace_id, actor_id, actor_role, action, entity_type, entity_id, before, after, source, undone_by, created_at) — history of HUMAN graph edits for async mentor review + undo (pipeline writes are not audited)
+- **annotations**(id, workspace_id, author_id, target_type[concept|edge|cluster], target_concept_id / target_edge_id / target_cluster_label, kind[highlight|flag|comment], body, status[open|resolved], parent_id, …) — mentor notes + comment threads; clusters are referenced by LABEL because cluster ids churn on every recompute
 
 ## 4. Logic That MUST Live Server-Side
 
 The following must **not** run on the frontend/client:
 
 - All embedding and LLM calls (OpenAI) — backend only.
-- Every stage of the document ingestion pipeline (parse, chunk, embed, extract concepts, merge/dedup, build edges).
+- Every stage of the document ingestion pipeline (parse, chunk, embed, extract concepts, core-concept gate, merge/dedup, build edges).
 - Clustering / community detection.
 - Semantic search (because it first needs to embed the query).
 - RAG retrieval + generation + computing cited_concept_ids.
 - All Aurora database reads/writes (frontend accesses indirectly via the backend API).
 - Auth verification for protected endpoints (backend verifies the Cognito id token via JWKS — no shared secret).
+- Human graph edits (create / edit / delete nodes & edges): validated, audited (before/after snapshot for undo), and taken under the **same per-workspace lock** the ingestion worker holds — a concurrent import yields a conflict, never a duplicate node.
+- Share-link accept (bind the joining Cognito `sub` to the workspace at the link's role, idempotent) and all role / permission checks.
 
 ## 5. Data Flows
 
 ### 5.1 Ingestion Pipeline (async, worker)
-1. Frontend requests presigned URL → uploads to S3; backend inserts documents=pending, enqueues, returns job id; frontend polls status.
-2. Parse (PyMuPDF for PDF, direct read for MD/txt).
+1. Frontend requests presigned URL → uploads to S3; backend inserts documents=pending, enqueues, returns job id; frontend polls status. Image uploads are rejected up front with **415** (`image/*` content-type or image extension) — the pipeline has no OCR, so an image would otherwise decode to replacement-character garbage on the text path.
+2. Parse (PyMuPDF4LLM → layout-aware Markdown for PDF — reconstructs reading order for two-column papers and emits structural headings/tables; direct read for MD/txt). A trailing **References/Bibliography** section is stripped before extraction so cited titles don't each become a junk concept. The parsed Markdown is also stored on `documents.body_markdown` (before chunking) so the reading view can show the original without re-parsing.
 3. Chunk (by structure + token window; content hash for idempotency).
 4. Embed chunks (OpenAI embedding → write pgvector).
-5. Extract concepts + relations (OpenAI structured output, per chunk).
-6. **Merge/dedup:** embed the concept → pgvector similarity query within the same workspace → above threshold (optional LLM confirm) merge (add alias + mention), else create a new node. The worker is single-process and serialized per workspace to avoid creating duplicate nodes concurrently.
-7. Build edges (map to merged ids; if an edge exists, weight++).
-8. **Clustering:** Leiden/Louvain (igraph) or HDBSCAN/UMAP → write cluster_id; LLM labels each cluster.
-9. Finalize: documents=done, notify frontend to refresh.
+5. Extract concepts + relations (OpenAI structured output, per chunk — high recall; a single passage is deliberately mined exhaustively).
+6. **Doc summary:** the extractor emits a one-line summary per chunk; an aggregator LLM folds them into a single document summary, embedded and stored on `documents.summary` (backs document search). Computed *before* merge because the core gate consumes it.
+7. **Core-concept gate (reduce-pass salience):** per-chunk extraction is blind to the whole document, so bibliography / related-work passages each yield nodes (noise). One document-level LLM call sees the doc summary + every candidate concept (with its per-passage frequency as a hint) and returns only the concepts the document substantively develops; incidental mentions never enter the graph from this document. Drops are **document-scoped** — a concept another document owns is untouched — and the step is **fail-open** (refusal/empty keeps all candidates, never empties the graph). Only the kept concepts are embedded for the next step.
+8. **Merge/dedup:** an exact-name **and alias** fast path resolves known surface forms with no LLM call; otherwise embed the concept → pgvector similarity query within the same workspace → an LLM judge (`match_concept`) confirms a match → merge (fold description + re-embed, add alias + mention), else create a new node. The merge section runs under a per-workspace Redis lock so concurrent jobs can't spawn duplicate nodes.
+9. Build edges (map to merged ids; if an edge exists, weight++). Edges whose endpoints were dropped by the gate fall away. In the same pass, **co-occurrence edges** (`kind='cooccur'`, undirected, weight = co-mention count) are written for concept pairs that share a chunk — a hidden substrate that densifies the cluster graph (the displayed relations alone are sparse). Weight accumulates across chunks and documents, so repeated co-mention carries strength.
+10. **Clustering:** two-level Leiden over the weighted graph — **both** displayed relations and co-occurrence edges (igraph/leidenalg, networkx-Louvain fallback) → big top communities split once into sub-topics → write leaf `cluster_id` + the `parent_id` hierarchy; an orphan concept (no edge at all) is rescued by an embedding-kNN link so it joins a real topic instead of becoming a singleton; an LLM labels each cluster. Recomputed for the whole workspace after each ingest.
+11. Finalize: documents=done, notify frontend to refresh.
 
-### 5.2 RAG Q&A (sync, backend)
+**Global dedup sweep (repair pass, separate arq job — `dedup_sweep_workspace`).** The per-document merge is greedy and order-dependent: its embedding block can miss a synonym whose vector sits just past the recall floor, and those misses are never revisited. A manually-enqueued (or scheduled) sweep re-blocks every concept against every other (exact cosine), re-runs the same LLM judge, and **merges** confirmed duplicates — folding the loser's mentions, edges, and aliases onto the survivor, then deleting it (the "merge two existing nodes" operation the incremental path never performs). Runs under the same per-workspace lock; `dry_run` judges without writing. Idempotent.
+
+### 5.2 Semantic Search (sync, backend)
+1. Embed the query once (OpenAI); an empty query short-circuits to no results, an embed failure surfaces as 503 (not an unhandled 500).
+2. pgvector cosine ANN (HNSW) over two corpora, workspace-scoped: `concepts` (named nodes — manual nodes carry no embedding and are skipped) and `chunks` (source passages, joined to their document for the title).
+3. Each passage hit carries the concept ids it mentions, so — though a passage is not itself a graph node — a click can route to one.
+4. `GET /api/search?q=&workspace_id=&limit=` returns `{concepts[], passages[]}`, each with a cosine-similarity score. The client pairs this vector recall with its own instant substring match over the already-loaded graph (cmdk): concept hits feed the existing select-node path; a passage hit selects its most-mentioned concept (ranked by the mention counts the client already holds).
+
+### 5.3 RAG Q&A (sync, backend)
 1. Embed the query (OpenAI).
 2. pgvector retrieve top-k chunks + related concepts (scoped to current workspace).
 3. Assemble context + concept ids.
 4. LLM generate: a citation-backed answer + echo cited_concept_ids, streamed out.
 5. Frontend lights up graph nodes by id in real time (no fuzzy text matching).
+
+### 5.4 Collaboration (async, student ↔ mentor)
+1. **Share:** an owner enables a reusable, role-scoped share link; a recipient opens `/invite/{token}`, logs in, and is bound to the workspace at that role (idempotent — re-accept never downgrades). Link-only; no email path.
+2. **Mentor review:** highlight / flag / comment (threaded) on a concept / edge / cluster — a cluster is referenced by **label**, not id, because cluster ids are rebuilt on every ingest. Notes carry open / resolved status.
+3. **Graph edit:** an editor mutates nodes/edges under the per-workspace lock; each change is audit-logged (actor, role, before/after) and reversible via undo.
+4. **Sync:** the student's client **polls** (~2.5s) for graph + activity changes; an unread high-water mark badges events by others. No realtime channel by design.
+5. **(Planned) Slack:** a two-way plugin (OAuth) posts changes / digests outbound and accepts slash-command / button actions inbound — roadmap (M4–M5), not yet built; needs HMAC webhook verification + encrypted bot-token storage.
+
+### 5.5 Web Clip (browser extension → same pipeline)
+A second ingestion entrypoint alongside file upload, for the page a user is reading.
+1. The extension extracts the page's main content as **Markdown** (Readability → Turndown) and scrapes page **metadata** client-side, then shows a preview (with a soft "long page" warning past ~50k chars); the user edits the title, toggles whole-page / selection, and picks or creates a target workspace.
+2. On confirm it `POST`s `{title, content, source_url, metadata, workspace_id?}` to **`/api/imports/clip`** with the reused Cognito id token. Access control is identical to upload (personal workspace by default, else owner/editor of the target). An oversized body (> `clip_max_chars`, default 300k) is rejected with 413.
+3. The backend first **de-dups** by canonical URL (`services/urls.normalize_url` → `documents.source_url_canonical`): a page already clipped into the workspace returns the existing document (`duplicate: true`, no S3 write, no job). Otherwise it writes the Markdown to S3 itself (`put_object`), inserts `documents=pending` (`source_type="markdown"`, with `source_url` / canonical / metadata set), and enqueues the **same** `ingest_document` job via the shared `persist_and_enqueue_document` tail, so the worker (§5.1 steps 2–11) is unchanged. A *related* (not identical) page still merges its concepts into the graph like an uploaded document, bumping mention counts instead of duplicating nodes.
+4. No graph push from the extension — the open web app's existing ~2.5s poll surfaces the new nodes once the document reaches `done`. Empty content (the "save link only" fallback) records `source_url` with no concepts and deliberately does **not** claim the canonical key, so a later successful clip of the same page can still ingest.
 
 ## 6. Deployment & CICD
 - **Frontend:** Vercel connected to GitHub, Root Directory = `frontend`, env vars in project settings; push auto-deploys + PR previews.

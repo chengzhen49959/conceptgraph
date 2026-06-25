@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
@@ -25,15 +25,26 @@ export default function SignupPage() {
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // A `?next=` destination (e.g. arriving from an invite/share link), captured
+  // client-side. Only in-app relative paths are kept, so it can't be an open
+  // redirect. Carried through to /login and honoured after auto sign-in so a
+  // brand-new invitee lands back on the accept page instead of /dashboard.
+  const [next, setNext] = useState<string | null>(null)
+  useEffect(() => {
+    const n = new URLSearchParams(window.location.search).get('next')
+    setNext(n && n.startsWith('/') && !n.startsWith('//') ? n : null)
+  }, [])
+  const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : '/login'
 
   // After confirmation, Amplify can finish the pending sign-in automatically.
   async function finishAutoSignIn() {
     const { isSignedIn } = await autoSignIn()
     if (isSignedIn) {
-      router.push('/dashboard')
-      router.refresh()
+      // Full-document navigation so the freshly-set Cognito cookies reach the
+      // server gate (a client navigation can race the cookie write).
+      window.location.assign(next ?? '/dashboard')
     } else {
-      router.push('/login')
+      router.push(loginHref)
     }
   }
 
@@ -52,7 +63,7 @@ export default function SignupPage() {
       } else if (nextStep.signUpStep === 'COMPLETE_AUTO_SIGN_IN') {
         await finishAutoSignIn()
       } else {
-        router.push('/login')
+        router.push(loginHref)
       }
     } catch (err) {
       setError((err as Error).message)
@@ -73,7 +84,7 @@ export default function SignupPage() {
       if (nextStep.signUpStep === 'COMPLETE_AUTO_SIGN_IN') {
         await finishAutoSignIn()
       } else {
-        router.push('/login')
+        router.push(loginHref)
       }
     } catch (err) {
       setError((err as Error).message)
@@ -139,7 +150,7 @@ export default function SignupPage() {
         </CardContent>
         <CardFooter className="text-muted-foreground text-sm">
           Already have an account?
-          <Link href="/login" className="text-foreground ml-1 underline">
+          <Link href={loginHref} className="text-foreground ml-1 underline">
             Log in
           </Link>
         </CardFooter>

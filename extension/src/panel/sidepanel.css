@@ -1,0 +1,348 @@
+:root {
+  /* Let native form controls (input backgrounds, scrollbars) follow the OS scheme.
+     Without this the UA paints inputs light even in dark mode, so the light --fg
+     text below lands on a white field and turns invisible. */
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2f88ff;
+  --accent-fg: #ffffff;
+  --warn: #b42318;
+  --on-bg: #eef4ff;
+  --code-bg: #f3f4f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* The side panel sizes itself (user-resizable). Fill it, but keep a comfortable
+   reader column centered on wide panels. */
+.panel {
+  width: 100%;
+  max-width: 720px;
+  min-width: 280px;
+  margin: 0 auto;
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* Source hostname under the title — which page the current preview is from (the panel
+   persists across tab switches, so this keeps the origin unambiguous). */
+.source {
+  margin: -6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.warn {
+  color: var(--warn);
+  margin: 0;
+}
+
+/* Segmented scope toggle */
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 7px 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+}
+.seg button.on {
+  background: var(--on-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field > span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+}
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Rendered-Markdown preview (reader view). Was a raw-text pre-wrap box; now holds
+   formatted HTML, so it wraps normally and gets the panel's full height. */
+.preview {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+/* Typography for the rendered Markdown. KaTeX glyphs paint with currentColor, so
+   setting color here makes math follow light/dark mode automatically. */
+.md {
+  color: var(--fg);
+  font-size: 13.5px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 1.1em 0 0.5em;
+  line-height: 1.3;
+  font-weight: 650;
+}
+.md h1 {
+  font-size: 1.35em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md h4 {
+  font-size: 1em;
+}
+.md p {
+  margin: 0.55em 0;
+}
+.md ul,
+.md ol {
+  margin: 0.55em 0;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md a {
+  color: var(--accent);
+}
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.md pre {
+  background: var(--code-bg);
+  padding: 10px 12px;
+  border-radius: 7px;
+  overflow: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.88em;
+}
+.md blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0.9em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.md img {
+  max-width: 100%;
+  height: auto;
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+/* Display equations can be wider than the panel — scroll them instead of overflowing. */
+.md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.md .katex {
+  color: inherit;
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px;
+}
+.ws {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--fg);
+}
+.ws:hover {
+  background: #f3f4f6;
+}
+.ws.on {
+  background: var(--on-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.newws {
+  display: flex;
+  gap: 6px;
+}
+.newws input {
+  flex: 1;
+}
+.newws button {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 7px;
+  padding: 0 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.newws button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+button.primary {
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+button.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.link {
+  text-decoration: none;
+  text-align: center;
+  display: block;
+}
+
+button.ghost {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--fg);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+/* Compact ghost button for the header Re-extract action. */
+button.ghost.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+button.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --fg: #f2f2f7;
+    --muted: #9ca3af;
+    --border: #38383a;
+    --on-bg: #1e3a5f;
+    --code-bg: #2c2c2e;
+  }
+  .newws button,
+  button.ghost {
+    background: #2c2c2e;
+  }
+  .ws:hover {
+    background: #2c2c2e;
+  }
+}

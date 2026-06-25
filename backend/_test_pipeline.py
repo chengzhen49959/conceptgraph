@@ -13,15 +13,19 @@ import asyncio
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 
 from app.ai import (
+    CandidateConcept,
     embed_texts,
     extract_concepts,
     match_concept,
     merge_descriptions,
+    select_core_concepts,
+    summarize_document,
 )
 from app.config import get_settings
 from app.services.chunk import chunk_text
@@ -64,16 +68,36 @@ async def main() -> None:
     raw_relations = sum(len(e.relations) for e in extractions)
     print(f"[extract] {raw_concepts} concepts, {raw_relations} relations (pre-dedup)")
 
-    # --- pre-embed distinct concepts as "name: description" (worker.py form) --
+    # --- collect distinct concepts (text + first obj + passage freq) ---------
     concept_text: dict[str, str] = {}
+    concept_first: dict = {}
+    freq: Counter = Counter()
     for e in extractions:
         for c in e.concepts:
             k = c.name.strip().lower()
-            if k and k not in concept_text:
+            if not k:
+                continue
+            freq[k] += 1
+            if k not in concept_text:
                 concept_text[k] = f"{c.name}: {c.description}"
+                concept_first[k] = c
     keys = list(concept_text)
-    vlist = await embed_texts([concept_text[k] for k in keys]) if keys else []
-    vec = {k: np.array(v, dtype=np.float32) for k, v in zip(keys, vlist)}
+
+    # --- core gate (reduce-pass salience): keep only what the doc develops ---
+    doc_summary = await summarize_document([e.summary for e in extractions])
+    core = await select_core_concepts(
+        doc_summary,
+        [CandidateConcept(name=concept_first[k].name,
+                          description=concept_first[k].description, freq=freq[k])
+         for k in keys],
+    )
+    print(f"[core-gate] {len(core)}/{len(keys)} concepts kept "
+          f"(dropped {len(keys) - len(core)})")
+
+    # --- embed only the core concepts as "name: description" (worker.py form) -
+    core_keys = [k for k in keys if k in core]
+    vlist = await embed_texts([concept_text[k] for k in core_keys]) if core_keys else []
+    vec = {k: np.array(v, dtype=np.float32) for k, v in zip(core_keys, vlist)}
 
     # distinct concepts in document order (worker resolves each name once)
     ordered = []

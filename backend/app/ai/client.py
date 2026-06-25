@@ -27,4 +27,11 @@ def get_client() -> AsyncOpenAI:
             "OPENAI_API_KEY is not set — required for the ingestion pipeline. "
             "Add it to backend/.env.local."
         )
-    return AsyncOpenAI(api_key=settings.openai_api_key, max_retries=4)
+    # Explicit per-request timeout. Without it the SDK default is 600s — equal to
+    # the worker's job_timeout, so a single stalled call (common on a flaky
+    # VPN/GFW link) silently eats the entire job budget and the doc freezes
+    # mid-pipeline. 45s × up-to-5 attempts (max_retries=4) stays well under 600s,
+    # so a stuck call fails fast and surfaces as a real error instead of a hang.
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key, max_retries=4, timeout=45.0
+    )

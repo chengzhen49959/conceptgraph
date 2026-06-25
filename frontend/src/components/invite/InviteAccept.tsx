@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { LoaderCircle } from 'lucide-react'
-import { type InvitePreview, acceptInvite } from '@/lib/api'
+import { type InvitePreview, acceptShareLink } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -26,10 +26,14 @@ export function InviteAccept({
   const router = useRouter()
   const [busy, setBusy] = useState(false)
 
+  // The link is joinable only while enabled.
+  const joinable = preview?.status === 'enabled'
+
   const onAccept = async () => {
+    if (!preview) return
     setBusy(true)
     try {
-      const { workspace_id } = await acceptInvite(token)
+      const { workspace_id } = await acceptShareLink(token)
       toast.success('Joined the project')
       // Full navigation so the server gate sees the membership immediately.
       window.location.assign(`/dashboard?workspace=${workspace_id}`)
@@ -59,9 +63,9 @@ export function InviteAccept({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!preview ? null : preview.status !== 'pending' ? (
+          {!preview ? null : !joinable ? (
             <p className="text-sm text-destructive">
-              This invite is {preview.status} and can no longer be used.
+              This link is no longer active.
             </p>
           ) : signedIn ? (
             <Button onClick={onAccept} disabled={busy} className="w-full">

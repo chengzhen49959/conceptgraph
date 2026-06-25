@@ -1,13 +1,13 @@
-"""Annotations API — mentor highlight / flag / comment threads (M3).
+"""Annotations API — editor highlight / flag / comment threads (M3).
 
-A mentor (or owner) highlights a promising node or flags a wrong direction; any
-member may comment and reply. The student reviews these asynchronously. Unlike
+An editor (or owner) highlights a promising node or flags a wrong direction; any
+commenter may comment and reply. The student reviews these asynchronously. Unlike
 graph mutations these don't touch graph structure, so they take no merge-lock.
 
 Capability split (enforced here on top of workspace access):
-- comment / reply: anyone with access (owner | mentor | member)
-- highlight / flag: owner | mentor only
-- resolve / reopen: owner | mentor (any), member (own only)
+- comment / reply: owner | editor | commenter (a viewer is read-only)
+- highlight / flag: owner | editor only
+- resolve / reopen: owner | editor (any), commenter (own only)
 - edit: author only;  delete: author or owner
 """
 
@@ -251,7 +251,7 @@ async def _set_status(
     new_status: str,
 ) -> AnnotationOut:
     annotation, role = await _load_for_access(session, user, annotation_id)
-    if role not in {"owner", "mentor"} and annotation.author_id != user.id:
+    if role not in {"owner", "editor"} and annotation.author_id != user.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "you can only resolve your own notes"
         )

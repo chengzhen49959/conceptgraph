@@ -41,6 +41,13 @@ def _presign_put(key: str, content_type: str) -> str:
     )
 
 
+def _put(key: str, body: bytes, content_type: str) -> None:
+    settings = get_settings()
+    _client().put_object(
+        Bucket=settings.s3_bucket, Key=key, Body=body, ContentType=content_type
+    )
+
+
 def _get(key: str) -> bytes:
     settings = get_settings()
     obj = _client().get_object(Bucket=settings.s3_bucket, Key=key)
@@ -58,6 +65,16 @@ def _delete(keys: list[str]) -> None:
 async def presign_put_url(key: str, content_type: str) -> str:
     """A presigned PUT URL the browser uploads raw bytes to directly."""
     return await asyncio.to_thread(_presign_put, key, content_type)
+
+
+async def put_object(key: str, body: bytes, content_type: str) -> None:
+    """Upload bytes to S3 server-side.
+
+    The clipper extension sends clean text through the API (not via a presigned
+    URL), so the backend writes it to S3 itself — the worker then reads it back
+    with :func:`get_object` like any uploaded document.
+    """
+    await asyncio.to_thread(_put, key, body, content_type)
 
 
 async def get_object(key: str) -> bytes:

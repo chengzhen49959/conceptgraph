@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Graph Clipper",
+  "version": "0.1.0",
+  "description": "Clip a web page's clean main text into your concept graph.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAySSzEh1ADWGiqKNEwTKZGTqA5xWvs/hAeiBlpzT8widPhLYIE6kCSltguUMtTCBAuZzJQHGS4wGDiEKsBNVhfKiqRcGbtrcRRqg02tDWQwPn0i5Xn6CF2Q5K/9g9MdTeMIbc+HMfn3p/iFdSiHl0JxMbgBZIvKWdaFG3w/Cor3hOnGexdU4htbd3SrIBAreaZ89jzs6zscLW53n1T8bnll7GesyjYtWk1xOnfIxVyAQ26GQ+FtHQnzoZAZzj6eqLOS+9df6YqSUCnNCqP1mjF3Iv9E7e3uWlall68W7lsk5UnsGVaouxu0fXji6fHmUyw3o8LigScGc6d8zdCmmo6wIDAQAB",
+  "action": {
+    "default_title": "Clip to graph"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["fab.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["activeTab", "scripting", "cookies", "storage", "contextMenus", "sidePanel"],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Open the clipper panel"
+    }
+  }
+}

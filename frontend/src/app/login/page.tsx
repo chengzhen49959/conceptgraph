@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import {
@@ -46,6 +46,18 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // True from the moment auth succeeds until the browser finishes the full-document
+  // redirect — drives a "signed in, loading" screen so the form doesn't just sit there
+  // (goDashboard does a full navigation, which has a visible gap).
+  const [done, setDone] = useState(false)
+  // Carry a `?next=` redirect (e.g. from an invite link) through to /signup so a
+  // user who needs an account doesn't lose their destination. Captured client-side.
+  const [next, setNext] = useState<string | null>(null)
+  useEffect(() => {
+    const n = new URLSearchParams(window.location.search).get('next')
+    setNext(n && n.startsWith('/') && !n.startsWith('//') ? n : null)
+  }, [])
+  const signupHref = next ? `/signup?next=${encodeURIComponent(next)}` : '/signup'
 
   function goDashboard() {
     // Full-document navigation (not router.push) so the browser sends the
@@ -69,7 +81,8 @@ export default function LoginPage() {
     try {
       const { isSignedIn, nextStep } = await signInClean(email, password)
       if (isSignedIn) {
-        await goDashboard()
+        setDone(true)
+        goDashboard()
       } else if (nextStep.signInStep === 'CONFIRM_SIGN_UP') {
         // Unconfirmed account: send a fresh code and collect it here.
         await resendSignUpCode({ username: email })
@@ -101,8 +114,10 @@ export default function LoginPage() {
       await confirmSignUp({ username: email, confirmationCode: code })
       // Account is verified now — sign in with the password from the form.
       const { isSignedIn } = await signInClean(email, password)
-      if (isSignedIn) await goDashboard()
-      else setStep('login')
+      if (isSignedIn) {
+        setDone(true)
+        goDashboard()
+      } else setStep('login')
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -119,6 +134,22 @@ export default function LoginPage() {
     } catch (err) {
       setError((err as Error).message)
     }
+  }
+
+  if (done) {
+    return (
+      <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">Signed in ✓</CardTitle>
+            <CardDescription>Loading your workspace…</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center py-6">
+            <Loader2 className="text-muted-foreground size-8 animate-spin" />
+          </CardContent>
+        </Card>
+      </main>
+    )
   }
 
   return (
@@ -186,7 +217,7 @@ export default function LoginPage() {
         </CardContent>
         <CardFooter className="text-muted-foreground text-sm">
           No account?
-          <Link href="/signup" className="text-foreground ml-1 underline">
+          <Link href={signupHref} className="text-foreground ml-1 underline">
             Sign up
           </Link>
         </CardFooter>

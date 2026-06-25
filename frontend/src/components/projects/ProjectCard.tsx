@@ -38,8 +38,9 @@ import {
 
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Owner',
-  mentor: 'Mentor',
-  member: 'Member',
+  editor: 'Can edit',
+  commenter: 'Can comment',
+  viewer: 'Can view',
 }
 
 export function ProjectCard({

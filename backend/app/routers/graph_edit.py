@@ -170,7 +170,7 @@ async def _audit(
     after: dict | None = None,
 ) -> GraphAudit:
     """Append a change-history row. ``source`` is derived from the actor's role so
-    the feed can highlight a mentor's edits."""
+    the feed can highlight a non-owner editor's edits."""
     row = GraphAudit(
         workspace_id=workspace_id,
         actor_id=actor.id,
@@ -180,7 +180,7 @@ async def _audit(
         entity_id=entity_id,
         before=before,
         after=after,
-        source="mentor" if role == "mentor" else "user",
+        source="editor" if role == "editor" else "user",
     )
     session.add(row)
     await session.flush()
@@ -533,16 +533,36 @@ async def delete_edge(
 # --- audit feed + undo -------------------------------------------------------
 
 
+def _concept_name(e: GraphAudit) -> tuple[str, int]:
+    """A concept audit's display name, plus how many *extra* nodes it touched.
+
+    Snapshot shapes vary: a create/update stores the node's fields directly
+    under ``after``; a single delete nests them under ``before.concept``; a
+    cascade delete — and the undo/redo rows it spawns — store a *list* under
+    ``concepts`` (the targeted node plus its removed neighbours). The targeted
+    node is the one whose id matches the row's ``entity_id``."""
+    for blob in (e.after or {}, e.before or {}):
+        nodes = blob.get("concepts")
+        if nodes:
+            primary = next(
+                (c for c in nodes if c.get("id") == str(e.entity_id)), nodes[0]
+            )
+            return primary.get("name") or "concept", max(0, len(nodes) - 1)
+        single = blob.get("concept")
+        name = (single if isinstance(single, dict) else blob).get("name")
+        if name:
+            return name, 0
+    return "concept", 0
+
+
 def _summary(e: GraphAudit) -> str:
-    after = e.after or {}
-    before = e.before or {}
+    suffix = ""
     if e.entity_type == "concept":
-        name = (
-            after.get("name")
-            or (before.get("concept") or before).get("name")
-            or "concept"
-        )
+        name, extra = _concept_name(e)
+        if extra:
+            suffix = f" + {extra} more"
     else:
+        after, before = e.after or {}, e.before or {}
         name = after.get("relation") or before.get("relation") or "relation"
     verb = {
         "concept.create": "Added concept",
@@ -552,7 +572,7 @@ def _summary(e: GraphAudit) -> str:
         "edge.update": "Edited relation",
         "edge.delete": "Deleted relation",
     }.get(e.action, e.action)
-    return f'{verb} "{name}"'
+    return f'{verb} "{name}"{suffix}'
 
 
 def _audit_out(e: GraphAudit, user: CurrentUser, role: str) -> AuditOut:

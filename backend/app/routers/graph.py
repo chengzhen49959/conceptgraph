@@ -40,6 +40,7 @@ class GraphLink(BaseModel):
 class GraphCluster(BaseModel):
     id: uuid.UUID
     label: str | None
+    parent_id: uuid.UUID | None = None  # hierarchy: leaf clusters point at a parent
 
 
 class GraphOut(BaseModel):
@@ -94,14 +95,25 @@ async def get_graph(
                 Edge.target_concept_id,
                 Edge.relation,
                 Edge.weight,
-            ).where(Edge.workspace_id == workspace_id)
+            ).where(Edge.workspace_id == workspace_id, Edge.kind == "relation")
         )
     ).all()
 
+    # Only LEAF clusters (the ones concepts actually attach to) drive the flat
+    # topic list + node colouring; parent clusters exist for the hierarchy and are
+    # reachable via `parent_id`, but listing them here would clutter the UI with
+    # empty topics. The whole tree is fetched separately when a UI needs it.
+    leaf_ids = (
+        select(Concept.cluster_id)
+        .where(Concept.workspace_id == workspace_id, Concept.cluster_id.isnot(None))
+        .distinct()
+        .scalar_subquery()
+    )
     cluster_rows = (
         await session.execute(
-            select(Cluster.id, Cluster.label).where(
-                Cluster.workspace_id == workspace_id
+            select(Cluster.id, Cluster.label, Cluster.parent_id).where(
+                Cluster.workspace_id == workspace_id,
+                Cluster.id.in_(leaf_ids),
             )
         )
     ).all()
@@ -117,5 +129,7 @@ async def get_graph(
             GraphLink(id=r[0], source=r[1], target=r[2], relation=r[3], weight=r[4])
             for r in link_rows
         ],
-        clusters=[GraphCluster(id=r[0], label=r[1]) for r in cluster_rows],
+        clusters=[
+            GraphCluster(id=r[0], label=r[1], parent_id=r[2]) for r in cluster_rows
+        ],
     )

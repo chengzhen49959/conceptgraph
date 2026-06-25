@@ -18,7 +18,7 @@ export default async function InvitePage({
   // the backend ignores for this route — so it works whether or not signed in.
   let preview: InvitePreview | null = null
   try {
-    preview = await apiServer<InvitePreview>(`/api/invites/${token}`)
+    preview = await apiServer<InvitePreview>(`/api/share/${token}`)
   } catch {
     // ignore — null preview renders the "invalid invite" state
   }

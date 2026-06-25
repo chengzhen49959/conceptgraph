@@ -1,0 +1,598 @@
+{
+  "document": "attention",
+  "summary": "This document is the Transformer paper, which introduces a new sequence transduction architecture that replaces recurrence and convolution with attention alone. It explains the model’s core components—scaled dot-product attention, multi-head self-attention, encoder-decoder stacks, feed-forward layers, residual connections, layer normalization, and positional encodings—and compares its efficiency and long-range modeling advantages with recurrent and convolutional approaches. The paper also describes the training setup, optimizer, regularization, and dataset processing used for machine translation experiments. Results show state-of-the-art BLEU scores on WMT translation benchmarks with much lower training cost, and ablation studies examine how attention heads, dimensionality, dropout, and positional encoding affect performance.",
+  "counts": {
+    "concepts": 26,
+    "aliases": 45,
+    "edges": 40,
+    "cooccur_edges": 128,
+    "clusters_total": 7,
+    "clusters_leaf": 5,
+    "clusters_parent": 2,
+    "singletons": 0
+  },
+  "concepts": [
+    {
+      "name": "Attention mechanism",
+      "description": "A mechanism that lets a model selectively focus on relevant parts of an input or another internal representation when producing an output. In sequence-to-sequence models, it helps connect encoder and decoder states by weighting informative source positions.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [
+        "Attention",
+        "attention"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Computational Complexity per Layer",
+      "description": "The amount of computation required by a single neural network layer as a function of input size. It is used to compare how efficient different layer types are when processing sequences.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [],
+      "cluster": "Sequence Modeling Complexity"
+    },
+    {
+      "name": "Convolutional Layer",
+      "description": "A sequence-processing layer that applies a kernel across local neighborhoods to compute representations. It captures nearby context efficiently and can be stacked to increase the effective receptive field over longer distances.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "Convolutional",
+        "convolution layer"
+      ],
+      "cluster": "Neural Network Layers"
+    },
+    {
+      "name": "Decoder",
+      "description": "A model component that generates an output sequence from an internal representation, often one token at a time. In sequence-to-sequence systems, it conditions on encoder information and previously produced outputs.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [],
+      "cluster": "Neural Network Components"
+    },
+    {
+      "name": "Decoder Stack",
+      "description": "A stack of repeated decoder layers used to generate an output sequence from encoded representations. It processes previously generated symbols while building the next output.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [],
+      "cluster": "Transformer Architecture"
+    },
+    {
+      "name": "Encoder",
+      "description": "A model component that reads an input sequence and converts it into an internal representation. In sequence-to-sequence systems, it produces information that the decoder uses to generate the output sequence.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [],
+      "cluster": "Neural Network Components"
+    },
+    {
+      "name": "Encoder-decoder architecture",
+      "description": "A sequence modeling framework with one component that reads an input sequence into an internal representation and another that generates an output sequence from it. It is widely used for tasks such as translation and other sequence transduction problems.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [
+        "Sequence-to-Sequence Architecture",
+        "encoder-decoder architectures",
+        "sequence-to-sequence architecture"
+      ],
+      "cluster": "Transformer Architecture"
+    },
+    {
+      "name": "Encoder-decoder attention",
+      "description": "An attention layer in which the decoder queries attend to the encoder outputs used as keys and values. It lets each decoder position access information from all positions in the input sequence and is a standard mechanism in sequence-to-sequence models.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [
+        "encoder-decoder attention"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Encoder Stack",
+      "description": "A stack of repeated encoder layers used to transform an input sequence into contextual continuous representations. Each layer applies attention-based processing before passing the result onward.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [],
+      "cluster": "Transformer Architecture"
+    },
+    {
+      "name": "Layer Normalization",
+      "description": "A normalization technique applied across the features of a single example. It stabilizes and speeds up training by keeping activations in a more controlled range.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [
+        "LayerNorm"
+      ],
+      "cluster": "Neural Network Components"
+    },
+    {
+      "name": "Long-Range Dependency",
+      "description": "A relationship between distant positions in a sequence that a model must capture despite the elements being far apart. Learning such dependencies is important in many sequence modeling tasks and is easier when the network path between positions is short.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [
+        "long-range dependencies"
+      ],
+      "cluster": "Sequence Modeling Complexity"
+    },
+    {
+      "name": "Masked Self-Attention",
+      "description": "Masked self-attention is a self-attention mechanism that restricts how each position can attend within a sequence. In decoder architectures for autoregressive prediction, a causal mask prevents a token from attending to future tokens (often allowing only earlier positions and, depending on the convention, the current position), ensuring information from future tokens cannot influence the current output.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "Decoder self-attention",
+        "causal self-attention",
+        "masked self-attention"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Multi-Head Attention",
+      "description": "An attention mechanism that runs several attention operations in parallel on different learned projections of the same input. The separate heads let a model attend to different relationships and representation subspaces at once.",
+      "origin": "extracted",
+      "mentions": 7,
+      "aliases": [
+        "MultiHead",
+        "Multihead Attention",
+        "Multiple-Head Attention",
+        "multi-head attention",
+        "multihead attention",
+        "multiple-head attention"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Multi-Head Self-Attention",
+      "description": "A self-attention mechanism that runs multiple attention operations in parallel and combines their outputs. This lets the model capture different types of relationships between positions in a sequence at the same time.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [
+        "Multihead Self-Attention"
+      ],
+      "cluster": "Transformer Architecture"
+    },
+    {
+      "name": "Path Length",
+      "description": "The number of computational steps a signal must traverse through a network between two positions. Shorter path lengths generally make it easier for models to learn dependencies between distant elements.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [],
+      "cluster": "Sequence Modeling Complexity"
+    },
+    {
+      "name": "Positional Encoding",
+      "description": "A position representation added to token embeddings so a sequence model can use order information. It provides information about token location without using learned recurrent state.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [
+        "Parameter-Free Position Representation",
+        "position encoding"
+      ],
+      "cluster": "Neural Network Layers"
+    },
+    {
+      "name": "Position-wise feed-forward network",
+      "description": "A fully connected neural network applied independently to each sequence position in a Transformer layer. It typically consists of two linear transformations with a nonlinearity between them, enabling per-position feature transformation after attention.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "FFN",
+        "feed-forward network"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Recurrent Layer",
+      "description": "A sequence-processing layer that updates hidden states step by step, with each position depending on previous computations. This makes the computation inherently sequential and can create long paths between distant positions in a sequence.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "Recurrent",
+        "recurrent layer"
+      ],
+      "cluster": "Neural Network Layers"
+    },
+    {
+      "name": "Residual Connection",
+      "description": "A shortcut connection that adds a sublayer's input to its output before further processing. It helps information and gradients flow through deep networks and makes stacked architectures easier to optimize.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [
+        "skip connection"
+      ],
+      "cluster": "Neural Network Components"
+    },
+    {
+      "name": "Restricted Self-Attention",
+      "description": "A variant of self-attention that limits each position to attend only to a local neighborhood. This reduces computation compared with full self-attention while restricting information flow to a window of size r.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "Self-Attention (restricted)",
+        "local self-attention"
+      ],
+      "cluster": "Neural Network Layers"
+    },
+    {
+      "name": "Scaled Dot-Product Attention",
+      "description": "An attention mechanism that scores query-key compatibility with a dot product, scales the result, and converts it into weights over values. The scaling helps keep gradients stable when key and query dimensions are large.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [
+        "Dot-Product Attention",
+        "Scaled Attention",
+        "scaled dot product attention"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Self-attention",
+      "description": "An attention mechanism in which each element in a sequence attends to other elements in the same sequence. It allows a model to build contextual representations without recurrence or convolution by directly relating positions to one another.",
+      "origin": "extracted",
+      "mentions": 9,
+      "aliases": [
+        "Attention",
+        "Intra-Attention",
+        "attention",
+        "intra-attention",
+        "self attention",
+        "self-attention layer"
+      ],
+      "cluster": "Transformer Attention Mechanism"
+    },
+    {
+      "name": "Sequence transduction",
+      "description": "A class of problems in which a model transforms one sequence into another sequence, often of different length. Examples include translation, where the input and output sequences are aligned only implicitly.",
+      "origin": "extracted",
+      "mentions": 2,
+      "aliases": [
+        "sequence transduction task"
+      ],
+      "cluster": "Sequence Modeling Complexity"
+    },
+    {
+      "name": "Sequential Operations",
+      "description": "Operations that must be executed one after another in a fixed order. A smaller number of sequential operations usually means better ability to parallelize computation.",
+      "origin": "extracted",
+      "mentions": 1,
+      "aliases": [],
+      "cluster": "Sequence Modeling Complexity"
+    },
+    {
+      "name": "Sinusoidal Positional Encoding",
+      "description": "A fixed positional encoding that represents each position using sine and cosine functions at different frequencies. The resulting patterns allow positions to be represented smoothly and can support extrapolation to longer sequences than those seen in training.",
+      "origin": "extracted",
+      "mentions": 3,
+      "aliases": [
+        "sinusoidal encoding",
+        "sinusoidal positional encoding",
+        "sinusoidal version",
+        "sinusoids"
+      ],
+      "cluster": "Neural Network Layers"
+    },
+    {
+      "name": "Transformer",
+      "description": "A neural network architecture for sequence transduction that relies entirely on attention mechanisms. It removes recurrence and convolutions while preserving the ability to model relationships between elements in a sequence, which makes computation more parallelizable.",
+      "origin": "extracted",
+      "mentions": 7,
+      "aliases": [
+        "Transformer model",
+        "the Transformer"
+      ],
+      "cluster": "Transformer Architecture"
+    }
+  ],
+  "hierarchy": [
+    {
+      "parent": "Transformer Architecture",
+      "leaves": [
+        {
+          "label": "Transformer Attention Mechanism",
+          "concepts": [
+            "Attention mechanism",
+            "Encoder-decoder attention",
+            "Masked Self-Attention",
+            "Multi-Head Attention",
+            "Position-wise feed-forward network",
+            "Scaled Dot-Product Attention",
+            "Self-attention"
+          ]
+        },
+        {
+          "label": "Neural Network Components",
+          "concepts": [
+            "Decoder",
+            "Encoder",
+            "Layer Normalization",
+            "Residual Connection"
+          ]
+        }
+      ]
+    },
+    {
+      "parent": "Transformer Architectures",
+      "leaves": [
+        {
+          "label": "Neural Network Layers",
+          "concepts": [
+            "Convolutional Layer",
+            "Positional Encoding",
+            "Recurrent Layer",
+            "Restricted Self-Attention",
+            "Sinusoidal Positional Encoding"
+          ]
+        },
+        {
+          "label": "Sequence Modeling Complexity",
+          "concepts": [
+            "Computational Complexity per Layer",
+            "Long-Range Dependency",
+            "Path Length",
+            "Sequence transduction",
+            "Sequential Operations"
+          ]
+        }
+      ]
+    },
+    {
+      "parent": null,
+      "leaves": [
+        {
+          "label": "Transformer Architecture",
+          "concepts": [
+            "Decoder Stack",
+            "Encoder Stack",
+            "Encoder-decoder architecture",
+            "Multi-Head Self-Attention",
+            "Transformer"
+          ]
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "Multi-Head Attention",
+      "target": "Attention mechanism",
+      "relation": "is a kind of",
+      "weight": 2
+    },
+    {
+      "source": "Restricted Self-Attention",
+      "target": "Self-attention",
+      "relation": "is a variant of",
+      "weight": 2
+    },
+    {
+      "source": "Attention mechanism",
+      "target": "Encoder",
+      "relation": "connects",
+      "weight": 1
+    },
+    {
+      "source": "Attention mechanism",
+      "target": "Decoder",
+      "relation": "connects",
+      "weight": 1
+    },
+    {
+      "source": "Decoder",
+      "target": "Masked Self-Attention",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Decoder",
+      "target": "Multi-Head Attention",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Decoder",
+      "target": "Residual Connection",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Decoder",
+      "target": "Layer Normalization",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Encoder",
+      "target": "Self-attention",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Encoder",
+      "target": "Residual Connection",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Encoder",
+      "target": "Layer Normalization",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Encoder Stack",
+      "target": "Multi-Head Self-Attention",
+      "relation": "contains",
+      "weight": 1
+    },
+    {
+      "source": "Encoder-decoder architecture",
+      "target": "Encoder",
+      "relation": "contains",
+      "weight": 1
+    },
+    {
+      "source": "Encoder-decoder architecture",
+      "target": "Decoder",
+      "relation": "contains",
+      "weight": 1
+    },
+    {
+      "source": "Encoder-decoder attention",
+      "target": "Multi-Head Attention",
+      "relation": "is a use of",
+      "weight": 1
+    },
+    {
+      "source": "Masked Self-Attention",
+      "target": "Self-attention",
+      "relation": "is a form of",
+      "weight": 1
+    },
+    {
+      "source": "Masked Self-Attention",
+      "target": "Self-attention",
+      "relation": "is a kind of",
+      "weight": 1
+    },
+    {
+      "source": "Multi-Head Attention",
+      "target": "Self-attention",
+      "relation": "is used with",
+      "weight": 1
+    },
+    {
+      "source": "Multi-Head Attention",
+      "target": "Scaled Dot-Product Attention",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Path Length",
+      "target": "Long-Range Dependency",
+      "relation": "affects learning of",
+      "weight": 1
+    },
+    {
+      "source": "Recurrent Layer",
+      "target": "Sequential Operations",
+      "relation": "requires",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Attention mechanism",
+      "relation": "is a type of",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Attention mechanism",
+      "relation": "is a kind of",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Multi-Head Attention",
+      "relation": "is a use of",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Sequence transduction",
+      "relation": "is used in",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Encoder",
+      "relation": "is used in",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Decoder",
+      "relation": "is used in",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Computational Complexity per Layer",
+      "relation": "is compared by",
+      "weight": 1
+    },
+    {
+      "source": "Self-attention",
+      "target": "Path Length",
+      "relation": "is compared by",
+      "weight": 1
+    },
+    {
+      "source": "Sinusoidal Positional Encoding",
+      "target": "Positional Encoding",
+      "relation": "is a kind of",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Attention mechanism",
+      "relation": "is based solely on",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Attention mechanism",
+      "relation": "relies on",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Encoder-decoder architecture",
+      "relation": "follows",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Self-attention",
+      "relation": "relies on",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Encoder Stack",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Decoder Stack",
+      "relation": "uses",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Encoder",
+      "relation": "includes",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Decoder",
+      "relation": "includes",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Encoder-decoder architecture",
+      "relation": "replaces components in",
+      "weight": 1
+    },
+    {
+      "source": "Transformer",
+      "target": "Sinusoidal Positional Encoding",
+      "relation": "uses",
+      "weight": 1
+    }
+  ]
+}

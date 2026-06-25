@@ -1,0 +1,188 @@
+# Knowledge Pipeline Spec
+
+The centralized knowledge base: one canonical graph of what a user knows, fed by every
+input tunnel, consumed by job matching, network matching, branding, and resume generation.
+
+Status: design locked, build-and-test phase. Nothing persistent touched until the final
+wiring step. Schema deltas are folded into `0001_arc.sql` (additive, idempotent) and staged,
+NOT applied.
+
+---
+
+## 1. Model
+
+### Node — a concept
+One canonical concept node per user (free-form). The node is mode-agnostic and type-agnostic;
+meaning accrues from its edges, not from labels baked onto it.
+
+Attached (intrinsic):
+- `concept` — canonical name (LLM normalize)
+- `description` — one-sentence glossary (LLM normalize, same call; disambiguation key)
+- `embedding` — 768-dim of `"{concept}: {description}"`
+- aliases[] — merged variant names (dedup byproduct)
+- `cluster_id` — hierarchy membership (emergent)
+
+NOT on the node: no skill-vs-knowledge field, no hand-built type taxonomy, no strength column.
+
+### Edges — what relates to a node
+1. concept to user — the CLAIM. Represented by the per-user `knowledge` row existing, plus
+   its evidence edges to sources. Carries the derived state + strength (below).
+2. concept to source — EVIDENCE / provenance (`knowledge_links`, polymorphic). Carries
+   timestamp (via the source) and which kind of source.
+3. concept to concept — RELATION. Two mechanisms:
+   - embedding similarity: computed on demand (ANN), never stored. The default substrate for
+     dedup, clustering, nearest-neighbor.
+   - typed edges: stored, optional, DEFERRED (not v1).
+4. concept to cluster — HIERARCHY membership (emergent, per-user).
+
+### The two states (derived, not stored)
+The only relationship axis that matters:
+- owned — the user has built/used it (evidence on an artifact or experience).
+- encountered — only read/watched/listed (evidence on a resource, or a bare resume mention).
+
+`owned = the concept has at least one evidence link to an artifact or experience.`
+Computed from the existing evidence edges. No enum, no column. Finer detail (read vs watched
+vs claimed) is recoverable by inspecting the linked sources when a consumer needs it.
+
+### Strength (derived, mechanical)
+A ranking number per (user, concept). No model ever guesses it; pure arithmetic over evidence.
+
+Per-evidence weight by source kind:
+
+| source linked | weight |
+|---|---|
+| artifact, experience | 1.0 (applied) |
+| education | 0.5 (practicing) |
+| resource | 0.3 (exposure) |
+| source (bare mention) | 0.1 |
+
+```
+strength = max(evidence_weight)
+         + 0.15 * log1p(total_evidence_count)
+         + 0.10 * recency(most_recent_evidence_date)   # 1.0 now -> ~0 at 24 months
+```
+Constants are tunable; calibrated against the corpus at eval time.
+
+---
+
+## 2. Data model
+
+### Reused (already in 0001, applied)
+- `knowledge` — the node (id, user_id, concept, description, embedding).
+- `knowledge_links` — concept to source evidence (polymorphic `node_ref`).
+- `resource` (read/watched), `artifact` (built), `experience` (did), `education`, `sources` —
+  the source nodes. `resource` already has `summary`, `url`, `author`, `consumed_at`, `embedding`.
+- `match_knowledge` RPC — ANN neighbors.
+
+### Deltas (fold into 0001, idempotent, staged NOT applied)
+```sql
+create table if not exists knowledge_alias (
+  knowledge_id uuid not null references knowledge(id) on delete cascade,
+  alias        text not null,
+  primary key (knowledge_id, alias));
+
+create table if not exists knowledge_cluster (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references person(id) on delete cascade,
+  parent_id  uuid references knowledge_cluster(id) on delete cascade,
+  label      text,
+  centroid   halfvec(768),
+  created_at timestamptz not null default now());
+
+alter table knowledge add column if not exists cluster_id
+  uuid references knowledge_cluster(id) on delete set null;
+```
+RLS owner-scoped on both new tables (copy existing pattern). No owned/strength/mode columns
+(derived). `match_knowledge` to also return `description` (judge needs it) at wiring time.
+
+---
+
+## 3. Pipeline
+
+### Producers (extraction is producer-owned; ingest is shared)
+- onboarding / resume (v1): resume parser already extracts skills. Map them to mentions with
+  provenance and feed the funnel:
+  - `XExperience.skills` -> ingest(ref_type=experience, ref_id) -> owned
+  - `XArtifact.skills`   -> ingest(ref_type=artifact, ref_id)   -> owned
+  - top-level `skills`   -> ingest(ref_type=source=resume)      -> encountered (mention)
+- long content / share (next): chunk -> per-chunk extractor returns (concepts + chunk summary)
+  -> aggregator returns (deduped concepts + one doc-level summary). Same extract prompt as
+  resume + one aggregator prompt. Store the doc summary on `resource.summary` + embed it
+  (searchable source, powers branding/connection). Chunk summaries are intermediate, discarded.
+  No chunk table (provenance is source-level).
+- learning module, report (later): create artifact/experience/education -> ingest -> owned/practicing.
+
+### Ingest funnel (shared chokepoint, `knowledge_ingest.ingest`)
+```
+normalize (LLM)          raw mention -> canonical concept + glossary description
+dedup
+  exact name / alias     store.find_exact -> reuse
+  ANN recall             store.neighbors (match_knowledge), replaces numpy fullscan
+  3-zone                 sim >= MERGE -> auto-merge | [NEW,MERGE) -> LLM judge | < NEW -> new
+  on merge               fold description (LLM, if adds info) + re-embed + write alias
+link                     store.link(concept, source) -> evidence edge
+```
+
+### Derive (on read, no recompute)
+- `owned(user, concept)` and `strength(user, concept)` are pure functions over the concept's
+  evidence links + the linked source kinds. Computed when a consumer asks. Materialize later
+  only if hot reads demand it.
+
+### Cluster (emergent, per-user, batch)
+- build kNN graph from `match_knowledge` over the user's concepts -> hierarchical community
+  detection (Leiden / recursive) -> LLM labels each cluster. Multi-level via `parent_id`.
+  No fixed L0 canopy in v1 (a stable canopy is deferred). Runs as a batch, not per-ingest.
+
+---
+
+## 4. Build steps
+
+All steps run against `InMemoryKnowledgeStore` (offline) until S6. Each ships with tests.
+
+- S0  derive: `owned` + `strength` pure functions + unit tests. No schema.
+- S1  store seam: `KnowledgeStore` protocol + Supabase/InMemory impls. DONE.
+- S2  ingest hardening: ANN via `store.neighbors`, `find_exact` + alias fast-path, description
+      fold + re-embed. Migrate existing ingest tests to the in-mem store.
+- S2p onboarding producer: resume extraction skills -> `Mention[]` with provenance -> ingest.
+      First end-to-end path (resume-first v1).
+- S3  clustering: emergent hierarchical clusters + LLM labels (per-user) on fixtures.
+- S4  long-doc producer: chunk -> extract (concepts + chunk summary) -> aggregator (concepts +
+      doc summary). Store doc summary on resource. Own eval.
+- S5  eval harness over the corpus: extraction precision/recall, dedup, homonym false-merge.
+      Author gold labels in `data/knowledge_corpus/gold/`.
+- S6  Supabase store impl + fold DDL into 0001 (alias, cluster, cluster_id). Staged, NOT applied.
+- S7  wire producers to real endpoints + apply migration on a branch + e2e. Add per-user
+      advisory lock for concurrent ingest.
+
+---
+
+## 5. Test plan
+
+- Unit (mocked LLM/embed, in-mem store): normalize, 3-zone dedup, alias fast-path, desc fold,
+  owned/strength derivation, mode-from-source mapping, cluster assignment.
+- Validation-before-build (scripts/): homonym false-merge rate (gates the auto-merge band),
+  strength ordering monotonic, cluster label quality.
+- Eval harness (scripts/, vs corpus): per-tunnel extraction precision/recall against gold;
+  threshold calibration.
+- E2E (real Supabase, branch): each tunnel full path; concurrent-ingest no-dup; "read N months
+  ago" query; cluster assignment.
+- CI: `pytest` green before each step merges.
+
+Corpus: `data/knowledge_corpus/` (16 curated items across resume / paper / brief / video,
+each with a stated purpose in the manifest). Builder: `scripts/build_knowledge_corpus.py`.
+
+---
+
+## 6. Deferred (parked, not v1)
+- Wikidata QID / type enrichment — a separate, isolated step gated by its own precision pass
+  (top-5 + P31 type-filter + LLM-confirm; naive top-1 measured at ~64% precision). Build when
+  cross-module (job / network) matching needs a shared join key. Off the description path
+  (description is LLM-generated).
+- `concept_edge` typed concept-to-concept relations (real-graph features).
+- Global / per-agency concept catalog (per-user now; `knowledge.user_id` is the claim).
+- Stable L0 cluster canopy (emergent-only for v1).
+- Auto-merge threshold policy — revisit after the homonym eval.
+
+## 7. Open at build time (not design gaps)
+- Gold labels for the corpus.
+- Threshold calibration (NEW/MERGE, cluster params, strength constants) on real data.

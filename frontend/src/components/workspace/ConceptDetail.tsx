@@ -36,7 +36,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConceptAnnotations } from './ConceptAnnotations'
@@ -127,6 +126,7 @@ export function ConceptPanel({
   node,
   graph,
   canEdit,
+  canComment,
   annotations,
   workspaceId,
   onClose,
@@ -137,6 +137,8 @@ export function ConceptPanel({
   node: GraphNode
   graph: GraphData
   canEdit: boolean
+  // Whether the viewer may post comments/replies (owner/editor/commenter).
+  canComment: boolean
   // Annotations targeting this concept (roots + replies).
   annotations: Annotation[]
   workspaceId: string | undefined
@@ -435,7 +437,7 @@ export function ConceptPanel({
         )}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-5 p-4">
           <div className="grid grid-cols-3 gap-2">
             <Stat label="mentions" value={detail?.mentions ?? node.mentions} />
@@ -621,11 +623,12 @@ export function ConceptPanel({
             conceptId={node.id}
             workspaceId={workspaceId}
             canFlag={canEdit}
+            canComment={canComment}
             annotations={annotations}
             onChanged={onAnnotationsChanged}
           />
         </div>
-      </ScrollArea>
+      </div>
 
       <Dialog
         open={confirmDeleteOpen}

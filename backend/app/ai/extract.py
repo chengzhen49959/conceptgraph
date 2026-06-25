@@ -24,6 +24,7 @@ class ExtractedRelation(BaseModel):
 class ChunkExtraction(BaseModel):
     concepts: list[ExtractedConcept]
     relations: list[ExtractedRelation]
+    summary: str  # 1-2 sentence summary of THIS passage; aggregated into a doc summary
 
 
 _INSTRUCTIONS = """You extract knowledge from ONE passage of a document for a knowledge graph.
@@ -66,7 +67,12 @@ identical description — this is what lets duplicates across documents merge.
 
 RELATIONS — short verb-phrase predicates between two concepts, BOTH present in
 `concepts` by their exact `name` (e.g. "is a kind of", "depends on", "is used
-for"). Skip any relation whose endpoints aren't both in the concept list."""
+for"). Skip any relation whose endpoints aren't both in the concept list.
+
+SUMMARY — also return `summary`: 1-2 sentences, in English, stating what THIS
+passage is about (its topic and main point). It is aggregated with the other
+passages' summaries into a single document summary, so keep it self-contained and
+free of references like "this passage"."""
 
 # The prompt aims for completeness, so this is only a runaway backstop, not a
 # quality knob — a single passage realistically never has this many concepts.
@@ -118,7 +124,9 @@ def _clean(parsed: ChunkExtraction) -> ChunkExtraction:
         if s and t and s.lower() in kept and t.lower() in kept and s.lower() != t.lower():
             relations.append(ExtractedRelation(source=s, target=t, relation=r.relation))
 
-    return ChunkExtraction(concepts=list(kept.values()), relations=relations)
+    return ChunkExtraction(
+        concepts=list(kept.values()), relations=relations, summary=parsed.summary
+    )
 
 
 async def extract_concepts(text: str) -> ChunkExtraction:
@@ -133,4 +141,6 @@ async def extract_concepts(text: str) -> ChunkExtraction:
             text_format=ChunkExtraction,
             reasoning={"effort": "low"},
         )
-    return _clean(resp.output_parsed or ChunkExtraction(concepts=[], relations=[]))
+    return _clean(
+        resp.output_parsed or ChunkExtraction(concepts=[], relations=[], summary="")
+    )

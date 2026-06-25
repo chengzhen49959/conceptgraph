@@ -59,7 +59,7 @@ async def require_workspace_role(
     """Load a workspace the caller may access and return ``(workspace, role)``.
 
     ``role`` is ``"owner"`` when the caller owns the workspace, else the
-    membership row's role (``"mentor"`` | ``"member"``). 404 if the workspace
+    membership row's role (``"editor"`` | ``"commenter"`` | ``"viewer"``). 404 if the workspace
     doesn't exist, 403 if the caller is neither owner nor member. This is the
     single place that decides *whether* a caller may touch a workspace and *as
     what* — every collaboration endpoint derives its permissions from the role
@@ -100,7 +100,10 @@ async def require_workspace(
 # scattered across routers. Routers call these and raise 403 themselves, e.g.
 # ``if not can_edit_graph(role): raise HTTPException(403, ...)``.
 
-EDIT_ROLES = frozenset({"owner", "mentor"})
+# Notion-style roles: owner (full access) > editor (edit) > commenter (comment) >
+# viewer (read only). A viewer has access (passes require_workspace_role) but is
+# excluded from can_annotate, so the only thing it can do is read.
+EDIT_ROLES = frozenset({"owner", "editor"})
 
 
 def can_edit_graph(role: str) -> bool:
@@ -109,23 +112,19 @@ def can_edit_graph(role: str) -> bool:
 
 
 def can_annotate(role: str) -> bool:
-    """Comment on the graph. Anyone with access may comment; the highlight/flag
-    kinds are further restricted (see :func:`can_highlight_or_flag`)."""
-    return role in {"owner", "mentor", "member"}
+    """Comment on the graph. Owner / editor / commenter may comment; a viewer is
+    read-only. The highlight/flag kinds are further restricted to edit roles
+    (see :func:`can_highlight_or_flag`)."""
+    return role in {"owner", "editor", "commenter"}
 
 
 def can_highlight_or_flag(role: str) -> bool:
-    """Author highlight / flag annotations — the mentor's course-correction tools."""
+    """Author highlight / flag annotations — an editor's course-correction tools."""
     return role in EDIT_ROLES
 
 
 def can_manage_members(role: str) -> bool:
     """Invite / revoke members and rename / delete the workspace (owner only)."""
-    return role == "owner"
-
-
-def can_connect_slack(role: str) -> bool:
-    """Connect / disconnect the workspace's Slack integration (owner only)."""
     return role == "owner"
 
 

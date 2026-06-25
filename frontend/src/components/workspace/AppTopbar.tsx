@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { History, Network, Search, Users } from 'lucide-react'
+import { Bell, Network, Search, Users } from 'lucide-react'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
 import { MembersPanel } from './MembersPanel'
@@ -12,12 +12,21 @@ export function AppTopbar({
   workspaceId,
   canManageMembers,
   onGraphChanged,
+  activityUnread,
+  onActivitySeen,
+  onNavigateConcept,
 }: {
   onOpenSearch: () => void
   workspaceId: string | undefined
   canManageMembers: boolean
   // Re-fetch the graph after an undo from the activity feed.
   onGraphChanged: () => void
+  // Unread activity count (events by others since last opened) → bell badge.
+  activityUnread: number
+  // Called when the feed is opened/marked read → clear the badge.
+  onActivitySeen: () => void
+  // Jump to a concept from an activity event.
+  onNavigateConcept: (conceptId: string) => void
 }) {
   const [membersOpen, setMembersOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
@@ -45,9 +54,19 @@ export function AppTopbar({
         </button>
 
         {workspaceId && (
-          <Button variant="outline" size="sm" onClick={() => setActivityOpen(true)}>
-            <History className="size-3.5" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="relative"
+            onClick={() => setActivityOpen(true)}
+          >
+            <Bell className="size-3.5" />
             Activity
+            {activityUnread > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium leading-none text-white">
+                {activityUnread > 99 ? '99+' : activityUnread}
+              </span>
+            )}
           </Button>
         )}
 
@@ -71,6 +90,8 @@ export function AppTopbar({
             open={activityOpen}
             onOpenChange={setActivityOpen}
             onUndone={onGraphChanged}
+            onNavigate={onNavigateConcept}
+            onSeen={onActivitySeen}
           />
         </>
       )}

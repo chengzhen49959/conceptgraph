@@ -139,7 +139,7 @@ async def list_workspaces(
             id=w.id,
             name=_display_name(w),
             type=w.type,
-            role="owner" if w.owner_id == user.id else member_roles.get(w.id, "member"),
+            role="owner" if w.owner_id == user.id else member_roles.get(w.id, "viewer"),
             icon=w.icon,
             icon_color=w.icon_color,
             concept_count=concept_counts.get(w.id, 0) if with_stats else None,

@@ -8,6 +8,7 @@ race backstop: a lost merge lock degrades to "found existing", never a duplicate
 """
 
 import uuid
+from collections.abc import Iterable
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -29,7 +30,7 @@ async def resolve_concept(
     """Return the concept id for `name`, merging or creating as appropriate.
 
     Takes the session *factory*, not an open session: each DB step uses its own
-    short-lived session so the merge LLM call (`confirm_same_concept`) runs with
+    short-lived session so the merge LLM call (`match_concept`) runs with
     NO connection checked out. Holding a connection across that network call is
     what let Aurora kill it mid-job (`ConnectionDoesNotExistError`).
 
@@ -42,7 +43,10 @@ async def resolve_concept(
     if key in cache:
         return cache[key]
 
-    # Fast path: exact (case-insensitive) name already present — no LLM needed.
+    # Fast path: exact (case-insensitive) hit on a canonical name OR a known
+    # alias — reuse that node, no embed/ANN/LLM. An alias records a merge the
+    # LLM already confirmed, so a surface form we've folded before resolves for
+    # free (and never re-creates a near-duplicate of its own canonical node).
     async with sessionmaker() as session:
         existing_id = (
             await session.execute(
@@ -52,6 +56,18 @@ async def resolve_concept(
                 )
             )
         ).scalar_one_or_none()
+        if existing_id is None:
+            existing_id = (
+                await session.execute(
+                    select(ConceptAlias.concept_id)
+                    .join(Concept, Concept.id == ConceptAlias.concept_id)
+                    .where(
+                        Concept.workspace_id == workspace_id,
+                        func.lower(ConceptAlias.alias) == key,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
     if existing_id is not None:
         cache[key] = existing_id
         return existing_id
@@ -171,8 +187,17 @@ async def upsert_edge(
     source_concept_id: uuid.UUID,
     target_concept_id: uuid.UUID,
     relation: str,
+    kind: str = "relation",
+    weight: int = 1,
 ) -> None:
-    """Insert an edge, or increment its weight if the same relation recurs."""
+    """Insert an edge, or add `weight` to it if the same (source, target, relation,
+    kind) edge recurs.
+
+    `kind` distinguishes a displayed directed relation ('relation') from a hidden
+    co-occurrence clustering edge ('cooccur'); the caller orders the endpoints
+    (relations are directed, co-occurrences are stored canonically). `weight` lets
+    a co-occurrence be added by its count in one call instead of N.
+    """
     if source_concept_id == target_concept_id:
         return  # no self-loops
     await session.execute(
@@ -182,10 +207,86 @@ async def upsert_edge(
             source_concept_id=source_concept_id,
             target_concept_id=target_concept_id,
             relation=relation,
-            weight=1,
+            kind=kind,
+            weight=weight,
         )
         .on_conflict_do_update(
             constraint="uq_edges_triple",
-            set_={"weight": Edge.weight + 1},
+            set_={"weight": Edge.weight + weight},
+        )
+    )
+
+
+# --- Bulk variants ---------------------------------------------------------
+# The singular helpers above stay for single-edge callers (graph_edit, dedup_sweep,
+# resolve_concept). The worker's per-document provenance/edge write, though, is
+# hundreds of rows: doing it one INSERT at a time was hundreds of sequential
+# round-trips to Aurora — the stall that hung the pipeline AFTER the merge finished.
+# These fold a whole document into one multi-row statement each.
+
+
+async def add_aliases(
+    session: AsyncSession, pairs: Iterable[tuple[uuid.UUID, str]]
+) -> None:
+    """Bulk :func:`add_alias`: one INSERT for a document's surface forms. Blanks are
+    dropped, duplicates collapsed, and ON CONFLICT DO NOTHING keeps an existing alias."""
+    rows = [
+        {"concept_id": cid, "alias": alias}
+        for cid, alias in {(c, a.strip()) for c, a in pairs if a.strip()}
+    ]
+    if not rows:
+        return
+    await session.execute(pg_insert(ConceptAlias).values(rows).on_conflict_do_nothing())
+
+
+async def add_mentions(
+    session: AsyncSession, rows: Iterable[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]
+) -> None:
+    """Bulk :func:`add_mention`: one INSERT for every (concept, chunk, document)
+    provenance row a document yields. Deduped via a set; ON CONFLICT DO NOTHING
+    absorbs a re-ingest."""
+    values = [
+        {"concept_id": cid, "chunk_id": chunk_id, "document_id": doc_id}
+        for cid, chunk_id, doc_id in set(rows)
+    ]
+    if not values:
+        return
+    await session.execute(
+        pg_insert(ConceptMention).values(values).on_conflict_do_nothing()
+    )
+
+
+async def upsert_edges(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    weighted: dict[tuple[uuid.UUID, uuid.UUID, str, str], int],
+) -> None:
+    """Bulk :func:`upsert_edge`: one INSERT … ON CONFLICT DO UPDATE for a document's
+    whole edge set, existing edges accumulating the incoming weight exactly as the
+    per-edge path does.
+
+    Weights MUST be pre-aggregated by the caller — the dict key is
+    ``(source, target, relation, kind)`` — because Postgres rejects updating the same
+    conflict target twice within one statement, so a key may not repeat. Self-loops
+    are dropped."""
+    rows = [
+        {
+            "workspace_id": workspace_id,
+            "source_concept_id": s,
+            "target_concept_id": t,
+            "relation": relation,
+            "kind": kind,
+            "weight": weight,
+        }
+        for (s, t, relation, kind), weight in weighted.items()
+        if s != t
+    ]
+    if not rows:
+        return
+    stmt = pg_insert(Edge).values(rows)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_edges_triple",
+            set_={"weight": Edge.weight + stmt.excluded.weight},
         )
     )

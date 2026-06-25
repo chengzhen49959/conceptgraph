@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { LoaderCircle, Trash2, UserPlus } from 'lucide-react'
+import { Link2 } from 'lucide-react'
 import {
+  type InviteRole,
   type Members,
-  createInvite,
+  type ShareLink,
+  getShareLink,
   listMembers,
-  revokeInvite,
+  updateShareLink,
 } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -20,9 +21,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+// Notion-style roles the share link can grant.
+const ROLE_OPTIONS: { value: InviteRole; label: string }[] = [
+  { value: 'editor', label: 'Can edit' },
+  { value: 'commenter', label: 'Can comment' },
+  { value: 'viewer', label: 'Can view' },
+]
+
 /**
- * Owner-only roster + invite form for a shared workspace. Invites are by email;
- * the created accept link is copied to the clipboard (no email delivery yet).
+ * Owner-only roster + sharing for a workspace. Sharing is a single reusable link
+ * (Notion "Copy link"): toggle it on, pick the role it grants, copy, and anyone
+ * with the link can join.
  */
 export function MembersPanel({
   workspaceId,
@@ -34,15 +43,18 @@ export function MembersPanel({
   onOpenChange: (open: boolean) => void
 }) {
   const [data, setData] = useState<Members | null>(null)
+  const [shareLink, setShareLink] = useState<ShareLink | null>(null)
   const [loading, setLoading] = useState(false)
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState<'mentor' | 'member'>('mentor')
-  const [inviting, setInviting] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      setData(await listMembers(workspaceId))
+      const [members, link] = await Promise.all([
+        listMembers(workspaceId),
+        getShareLink(workspaceId),
+      ])
+      setData(members)
+      setShareLink(link)
     } catch (e) {
       toast.error((e as Error).message)
     } finally {
@@ -54,34 +66,21 @@ export function MembersPanel({
     if (open) refresh()
   }, [open, refresh])
 
-  const onInvite = async () => {
-    const value = email.trim()
-    if (!value) return
-    setInviting(true)
+  const patchShareLink = async (patch: { enabled?: boolean; role?: InviteRole }) => {
     try {
-      const invite = await createInvite(workspaceId, value, role)
-      try {
-        await navigator.clipboard?.writeText(invite.accept_url)
-        toast.success(`Invited ${invite.email}. Invite link copied.`)
-      } catch {
-        toast.success(`Invited ${invite.email}.`)
-      }
-      setEmail('')
-      await refresh()
+      setShareLink(await updateShareLink(workspaceId, patch))
     } catch (e) {
       toast.error((e as Error).message)
-    } finally {
-      setInviting(false)
     }
   }
 
-  const onRevoke = async (id: string) => {
+  const onCopyShareLink = async () => {
+    if (!shareLink) return
     try {
-      await revokeInvite(workspaceId, id)
-      await refresh()
-      toast.success('Invite revoked')
-    } catch (e) {
-      toast.error((e as Error).message)
+      await navigator.clipboard?.writeText(shareLink.accept_url)
+      toast.success('Share link copied')
+    } catch {
+      toast.error('Could not copy link')
     }
   }
 
@@ -91,44 +90,64 @@ export function MembersPanel({
         <DialogHeader>
           <DialogTitle>Members</DialogTitle>
           <DialogDescription>
-            Invite a mentor to review this project&apos;s research-direction graph.
+            Turn on the link and send it to invite collaborators to this
+            project&apos;s research-direction graph.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex items-center gap-2">
-          <Input
-            type="email"
-            placeholder="mentor@university.edu"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onInvite()
-            }}
-          />
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as 'mentor' | 'member')}
-            className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
-            aria-label="Invite role"
-          >
-            <option value="mentor">Mentor</option>
-            <option value="member">Member</option>
-          </select>
-          <Button onClick={onInvite} disabled={inviting || !email.trim()}>
-            {inviting ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <UserPlus className="size-4" />
-            )}
-            Invite
-          </Button>
-        </div>
 
         {loading && !data ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="space-y-4">
-            <div>
+            {shareLink && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Share link</p>
+                    <p className="text-xs text-muted-foreground">
+                      {shareLink.enabled
+                        ? 'Anyone with the link can join.'
+                        : 'Turn on to let anyone with the link join.'}
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={shareLink.enabled}
+                    onChange={(e) => patchShareLink({ enabled: e.target.checked })}
+                    aria-label="Enable share link"
+                    className="size-4"
+                  />
+                </div>
+                {shareLink.enabled && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <select
+                      value={shareLink.role}
+                      onChange={(e) =>
+                        patchShareLink({ role: e.target.value as InviteRole })
+                      }
+                      className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
+                      aria-label="Share link role"
+                    >
+                      {ROLE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="secondary"
+                      onClick={onCopyShareLink}
+                      className="gap-1"
+                    >
+                      <Link2 className="size-4" />
+                      Copy link
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="border-t pt-4">
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Members
               </p>
@@ -138,43 +157,12 @@ export function MembersPanel({
                     key={m.user_id}
                     className="flex items-center justify-between text-sm"
                   >
-                    <span className="truncate">
-                      {m.is_you ? 'You' : m.user_id}
-                    </span>
+                    <span className="truncate">{m.is_you ? 'You' : m.user_id}</span>
                     <Badge variant="secondary">{m.role}</Badge>
                   </li>
                 ))}
               </ul>
             </div>
-
-            {data && data.pending_invites.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Pending invites
-                </p>
-                <ul className="space-y-1">
-                  {data.pending_invites.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="truncate">{p.email}</span>
-                      <span className="flex items-center gap-2">
-                        <Badge variant="outline">{p.role}</Badge>
-                        <button
-                          type="button"
-                          onClick={() => onRevoke(p.id)}
-                          aria-label="Revoke invite"
-                          className="text-muted-foreground transition-colors hover:text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
         )}
       </DialogContent>

@@ -32,21 +32,23 @@ const author = (a: Annotation) =>
   a.author_is_you ? 'You' : a.author_id.slice(0, 6)
 
 /**
- * Mentor annotation surface for one concept: highlight / flag toggles
- * (owner/mentor only) plus a comment thread anyone with access can reply to and
- * resolve. State lives in the parent (the workspace annotation list); every
- * action calls the API then `onChanged` to refetch.
+ * Annotation surface for one concept: highlight / flag toggles (owner/editor
+ * only, via `canFlag`) plus a comment thread (owner/editor/commenter, via
+ * `canComment`; a viewer sees threads read-only). State lives in the parent (the
+ * workspace annotation list); every action calls the API then `onChanged`.
  */
 export function ConceptAnnotations({
   conceptId,
   workspaceId,
   canFlag,
+  canComment,
   annotations,
   onChanged,
 }: {
   conceptId: string
   workspaceId: string | undefined
   canFlag: boolean
+  canComment: boolean
   annotations: Annotation[]
   onChanged: () => void
 }) {
@@ -224,7 +226,7 @@ export function ConceptAnnotations({
                     </div>
                   ))}
 
-                  {replyTo === a.id ? (
+                  {canComment && (replyTo === a.id ? (
                     <div className="mt-1 flex gap-1">
                       <input
                         autoFocus
@@ -255,21 +257,23 @@ export function ConceptAnnotations({
                     >
                       Reply
                     </button>
-                  )}
+                  ))}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    onClick={() => toggleResolve(a)}
-                    aria-label={a.status === 'open' ? 'Resolve' : 'Reopen'}
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                  >
-                    {a.status === 'open' ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <RotateCcw className="size-3.5" />
-                    )}
-                  </button>
+                  {canComment && (
+                    <button
+                      onClick={() => toggleResolve(a)}
+                      aria-label={a.status === 'open' ? 'Resolve' : 'Reopen'}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {a.status === 'open' ? (
+                        <Check className="size-3.5" />
+                      ) : (
+                        <RotateCcw className="size-3.5" />
+                      )}
+                    </button>
+                  )}
                   {a.author_is_you && (
                     <button
                       onClick={() => remove(a.id)}
@@ -286,25 +290,27 @@ export function ConceptAnnotations({
         </ul>
       )}
 
-      <div className="flex gap-1.5">
-        <input
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addComment()
-          }}
-          placeholder="Add a comment…"
-          className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
-        />
-        <Button
-          size="sm"
-          className="h-8"
-          disabled={busy || !comment.trim()}
-          onClick={addComment}
-        >
-          Comment
-        </Button>
-      </div>
+      {canComment && (
+        <div className="flex gap-1.5">
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addComment()
+            }}
+            placeholder="Add a comment…"
+            className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
+          />
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={busy || !comment.trim()}
+            onClick={addComment}
+          >
+            Comment
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

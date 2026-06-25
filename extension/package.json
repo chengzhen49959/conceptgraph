@@ -1,0 +1,33 @@
+{
+  "name": "graph-clipper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chrome extension: clip a web page's main text into your concept graph.",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:prod": "NODE_ENV=production node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "katex": "^0.16.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/katex": "^0.16.7",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/turndown": "^5.0.5",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}

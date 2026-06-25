@@ -8,34 +8,79 @@ two concurrent jobs for the same workspace can't create duplicate concept nodes
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
+from collections import Counter
+from itertools import combinations
 
 from arq.connections import RedisSettings
 from sqlalchemy import delete, update
 
-from app.ai import embed_texts, extract_concepts
+from app.ai import (
+    CandidateConcept,
+    ExtractedConcept,
+    embed_text,
+    embed_texts,
+    extract_concepts,
+    select_core_concepts,
+    summarize_document,
+)
 from app.config import get_settings
 from app.db import _sessionmaker, get_engine
 from app.models import Chunk, Document
 from app.services.chunk import chunk_text
 from app.services.clustering import recompute_clusters
-from app.services.concepts import add_alias, add_mention, resolve_concept, upsert_edge
+from app.services.concepts import add_aliases, add_mentions, resolve_concept, upsert_edges
+from app.services.dedup_sweep import sweep_workspace
 from app.services.parse import parse_document
 from app.services.storage import get_object
 
 logger = logging.getLogger("ingest")
 
+# Per-document floor for emitting a co-occurrence edge. A co-occurrence's STRENGTH
+# is its weight, which accumulates across chunks AND documents via upsert, so the
+# signal is cross-corpus, not per-doc — thresholding per document would block that
+# accumulation (a pair co-mentioned once in each of five papers should reach
+# weight 5, not be dropped five times). So the floor is 1 (emit every co-mention)
+# and weight-aware Leiden lets incidental weight-1 links fade while repeated
+# co-mentions pull concepts together. A knob: raise it to sparsify per document.
+_MIN_COOCCUR = 1
+
 
 async def _set_status(document_id: uuid.UUID, status: str, error: str | None = None) -> None:
+    # A status transition always clears the merge-progress counters: they belong to
+    # the merging phase alone, so leaving them set would make a later phase (or a
+    # finished doc) show a stale "30/62". The merge loop re-arms them via _set_progress.
     sessionmaker = _sessionmaker()
     async with sessionmaker() as session:
         await session.execute(
             update(Document)
             .where(Document.id == document_id)
-            .values(status=status, error=error)
+            .values(status=status, error=error, progress_current=None, progress_total=None)
         )
         await session.commit()
+
+
+async def _set_progress(document_id: uuid.UUID, current: int, total: int) -> None:
+    """Record merge-phase progress (current of total concepts resolved). Display
+    only — the frontend renders the count and derives a rough ETA from the rate at
+    which it advances. Called throttled (≈20 writes per document), not per concept."""
+    sessionmaker = _sessionmaker()
+    async with sessionmaker() as session:
+        await session.execute(
+            update(Document)
+            .where(Document.id == document_id)
+            .values(progress_current=current, progress_total=total)
+        )
+        await session.commit()
+
+
+def _merge_lock(redis, workspace_id: uuid.UUID):
+    """The per-workspace lock serialising every duplicate-prone graph write — the
+    ingest merge phase and the dedup sweep — so they can't interleave and spawn
+    duplicate nodes. Different workspaces still run in parallel."""
+    return redis.lock(f"merge-lock:{workspace_id}", timeout=600, blocking_timeout=180)
 
 
 async def ingest_document(ctx: dict, document_id: str) -> None:
@@ -66,6 +111,14 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         data = await get_object(s3_key)
         text = await asyncio.to_thread(parse_document, data, source_type)
 
+        # Keep the parsed source so the reader can show the original. Stored before
+        # the empty-chunk early-return below so even a chunk-less doc retains its text.
+        async with sessionmaker() as session:
+            await session.execute(
+                update(Document).where(Document.id == doc_id).values(body_markdown=text)
+            )
+            await session.commit()
+
         # --- Chunk -------------------------------------------------------------
         await _set_status(doc_id, "chunking")
         chunks = chunk_text(text)
@@ -91,22 +144,56 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
             await session.commit()
 
         # --- Extract concepts + relations per chunk (lock-free, concurrent) ----
+        await _set_status(doc_id, "extracting")
         extractions = await asyncio.gather(
             *(extract_concepts(c.content) for c in chunks)
         )
 
-        # Pre-embed each distinct concept (by lowercased name) for the merge step.
+        # Collect each distinct concept (by lowercased name): its canonical
+        # "name: description" form (identical to what the store keeps, so
+        # similarity is comparable at merge time), a representative object, and how
+        # many passages it appeared in (a salience hint for the core gate).
         concept_text: dict[str, str] = {}
+        concept_first: dict[str, ExtractedConcept] = {}
+        freq: Counter[str] = Counter()
         for ext in extractions:
             for c in ext.concepts:
                 key = c.name.strip().lower()
-                if key and key not in concept_text:
-                    # Canonical "name: description" form — identical to what the
-                    # store keeps, so similarity is comparable at merge time.
+                if not key:
+                    continue
+                freq[key] += 1
+                if key not in concept_text:
                     concept_text[key] = f"{c.name}: {c.description}"
+                    concept_first[key] = c
         keys = list(concept_text)
-        concept_vectors = await embed_texts([concept_text[k] for k in keys]) if keys else []
-        concept_vec = dict(zip(keys, concept_vectors))
+
+        # Aggregate the per-chunk summaries into one document summary and embed it
+        # (lock-free; it touches only this document's row). Stored in phase 2.
+        doc_summary = await summarize_document([e.summary for e in extractions])
+        summary_vec = await embed_text(doc_summary) if doc_summary else None
+
+        # Reduce-pass core gate: per-chunk extraction over-produces (every passage,
+        # incl. bibliography/related-work, yields nodes). This one document-level
+        # call keeps only the concepts the document substantively develops; the rest
+        # never enter the graph from this document. Lock-free, like the summary.
+        core = await select_core_concepts(
+            doc_summary,
+            [
+                CandidateConcept(
+                    name=concept_first[k].name,
+                    description=concept_first[k].description,
+                    freq=freq[k],
+                )
+                for k in keys
+            ],
+        )
+
+        # Embed only the core concepts for the merge step (skips dropped ones).
+        core_keys = [k for k in keys if k in core]
+        concept_vectors = (
+            await embed_texts([concept_text[k] for k in core_keys]) if core_keys else []
+        )
+        concept_vec = dict(zip(core_keys, concept_vectors))
 
         # --- Merge/dedup + edges + cluster (per-workspace lock) ----------------
         # Serialize the duplicate-prone section per workspace; different
@@ -114,54 +201,121 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         # session across an LLM call — concept resolution and cluster labelling
         # open their own short-lived sessions — so Aurora can't drop an idle
         # connection mid-job.
-        lock = redis.lock(
-            f"merge-lock:{workspace_id}", timeout=600, blocking_timeout=180
-        )
-        async with lock:
-            # Phase 1 — resolve every distinct concept to an id (the merge LLM
-            # runs here, with no session held). `cache` keys are lowercased names.
+        await _set_status(doc_id, "merging")
+        async with _merge_lock(redis, workspace_id):
+            # Phase 1 — resolve every distinct concept to an id (the merge LLM runs
+            # here, with no DB session held). `cache` keys are lowercased names.
+            #
+            # Resolutions run CONCURRENTLY, bounded by settings.merge_concurrency.
+            # One-at-a-time they were ≈60 sequential merge-judge calls over the
+            # network — the dominant cost that blew the 600s job_timeout on a first
+            # document. Concurrency cuts that to a few waves. The cost: each
+            # resolution's nearest-neighbour query sees a racy, partially-built view of
+            # THIS batch, so two differently-named near-duplicates in one document can
+            # both create a node; same-NAME collisions still can't (keys are distinct
+            # here, and the (workspace_id, lower(name)) unique index + ON CONFLICT
+            # backstops a race). The manual dedup_sweep repairs the residual near-dups.
             cache: dict[str, uuid.UUID] = {}
+
+            # Distinct concepts that passed the core gate (first description wins).
+            to_resolve: dict[str, tuple[str, str | None]] = {}
+            for ext in extractions:
+                for c in ext.concepts:
+                    key = c.name.strip().lower()
+                    if not key or key not in core or key not in concept_vec:
+                        continue
+                    to_resolve.setdefault(key, (c.name, c.description))
+
+            total = len(to_resolve)
+            await _set_progress(doc_id, 0, total)
+            done = 0
+            # ≈20 progress writes across the phase, not one DB round-trip per concept.
+            tick = max(1, total // 20)
+            sem = asyncio.Semaphore(get_settings().merge_concurrency)
+
+            async def _resolve_one(key: str, name: str, description: str | None) -> None:
+                nonlocal done
+                async with sem:
+                    await resolve_concept(
+                        sessionmaker, workspace_id, name, description, concept_vec[key], cache
+                    )
+                done += 1
+                if done % tick == 0 or done == total:
+                    await _set_progress(doc_id, done, total)
+
+            await asyncio.gather(
+                *(_resolve_one(k, n, d) for k, (n, d) in to_resolve.items())
+            )
+
+            # Aliases: collected after resolution, so `cache` maps every key to its id.
             alias_pairs: list[tuple[uuid.UUID, str]] = []
             for ext in extractions:
                 for c in ext.concepts:
                     key = c.name.strip().lower()
-                    if not key or key not in concept_vec:
-                        continue
-                    if key not in cache:
-                        await resolve_concept(
-                            sessionmaker,
-                            workspace_id,
-                            c.name,
-                            c.description,
-                            concept_vec[key],
-                            cache,
-                        )
-                    alias_pairs.extend((cache[key], a) for a in c.aliases)
+                    if key in cache:
+                        alias_pairs.extend((cache[key], a) for a in c.aliases)
 
-            # Phase 2 — provenance + edges (pure DB, one short session, no LLM).
+            # Phase 2 — provenance + edges. Aggregate everything in memory first (no
+            # awaits), then ONE bulk statement each for mentions, aliases, and edges.
+            # Per-row writes here were hundreds of sequential round-trips to Aurora —
+            # the ~4-minute stall the pipeline hit AFTER the merge had finished, which
+            # read to the user as "stuck again". Relation and co-occurrence weights are
+            # pre-summed per (source, target, relation, kind) so no key repeats within a
+            # multi-row INSERT (Postgres can't upsert the same conflict target twice in
+            # one statement).
+            edge_weights: Counter[tuple[uuid.UUID, uuid.UUID, str, str]] = Counter()
+            mentions: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
+            for chunk_id, ext in zip(chunk_ids, extractions):
+                ids_here: set[uuid.UUID] = set()
+                for c in ext.concepts:
+                    cid = cache.get(c.name.strip().lower())
+                    if cid is not None:
+                        mentions.add((cid, chunk_id, doc_id))
+                        ids_here.add(cid)
+                # Concepts sharing a chunk co-occur; tally each unordered pair
+                # (sorted → a<b canonical) across chunks for the cluster graph.
+                for a, b in combinations(sorted(ids_here), 2):
+                    edge_weights[(a, b, "", "cooccur")] += 1
+                for rel in ext.relations:
+                    sk = rel.source.strip().lower()
+                    tk = rel.target.strip().lower()
+                    if sk in cache and tk in cache:
+                        edge_weights[(cache[sk], cache[tk], rel.relation, "relation")] += 1
+            # Co-occurrence edges below the noise floor are dropped; displayed relations
+            # (kind='relation') are always kept. kind='cooccur' edges stay hidden from
+            # the graph view — they only densify the cluster graph.
+            edges = {
+                k: w for k, w in edge_weights.items() if k[3] != "cooccur" or w >= _MIN_COOCCUR
+            }
             async with sessionmaker() as session:
-                for cid, alias in alias_pairs:
-                    await add_alias(session, cid, alias)
-                for chunk_id, ext in zip(chunk_ids, extractions):
-                    for c in ext.concepts:
-                        cid = cache.get(c.name.strip().lower())
-                        if cid is not None:
-                            await add_mention(session, cid, chunk_id, doc_id)
-                    for rel in ext.relations:
-                        sk = rel.source.strip().lower()
-                        tk = rel.target.strip().lower()
-                        if sk in cache and tk in cache:
-                            await upsert_edge(
-                                session, workspace_id, cache[sk], cache[tk], rel.relation
-                            )
+                await add_aliases(session, alias_pairs)
+                await add_mentions(session, mentions)
+                await upsert_edges(session, workspace_id, edges)
+                if doc_summary:
+                    await session.execute(
+                        update(Document)
+                        .where(Document.id == doc_id)
+                        .values(summary=doc_summary, summary_embedding=summary_vec)
+                    )
                 await session.commit()
 
             # Phase 3 — refresh clusters (labels via LLM, hoisted; own sessions).
+            await _set_status(doc_id, "clustering")
             await recompute_clusters(sessionmaker, workspace_id)
 
         await _set_status(doc_id, "done")
         logger.info("ingested document %s (%d chunks)", doc_id, len(chunks))
 
+    except asyncio.CancelledError:
+        # arq's hard job_timeout cancels the task, and CancelledError is a
+        # BaseException — the `except Exception` below never sees it, which is why a
+        # timed-out job used to leave the doc frozen at 'merging' forever. Flag it
+        # failed before re-raising, shielded so this final write isn't itself
+        # cancelled mid-flight. on_startup is the backstop if even this can't land.
+        logger.warning("ingest cancelled (timeout?) for %s", doc_id)
+        with contextlib.suppress(Exception):
+            await asyncio.shield(_set_status(doc_id, "failed", "timed out"))
+        raise
     except Exception as exc:  # noqa: BLE001 — record failure, then re-raise for arq
         logger.exception("ingest failed for %s", doc_id)
         try:
@@ -171,19 +325,85 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         raise
 
 
+async def dedup_sweep_workspace(
+    ctx: dict, workspace_id: str, dry_run: bool = False
+) -> dict:
+    """Global entity-resolution sweep for one workspace — the repair pass for the
+    incremental merge, enqueued manually (or on a schedule). Holds the same
+    per-workspace merge lock as ingestion so it can't interleave with a document's
+    merge phase. `dry_run` judges duplicates but writes nothing — run it first to
+    eyeball the LLM's pairings before authorising the destructive merge.
+    """
+    ws_id = uuid.UUID(workspace_id)
+    sessionmaker = _sessionmaker()
+    async with _merge_lock(ctx["redis"], ws_id):
+        result = await sweep_workspace(sessionmaker, ws_id, dry_run=dry_run)
+    logger.info(
+        "dedup sweep %s: %d concepts, %d candidate pairs, %d merges%s",
+        ws_id,
+        result.concepts,
+        result.candidate_pairs,
+        len(result.merges),
+        " (dry run)" if dry_run else "",
+    )
+    return {
+        "concepts": result.concepts,
+        "candidate_pairs": result.candidate_pairs,
+        "merges": result.merges,
+        "dry_run": dry_run,
+    }
+
+
+async def on_startup(ctx: dict) -> None:
+    """Reset documents stranded in an in-progress stage by a previous worker's death.
+
+    A hard kill (laptop sleep, closed terminal) or a job_timeout-cancel can stop a
+    job without its `except` running, leaving the doc frozen mid-pipeline (e.g.
+    'merging') with no process driving it — an honest dead-end the UI shows as a
+    spinner that never resolves. On a fresh worker start nothing is legitimately
+    mid-flight (single worker; the per-workspace lock serialises the rest), so any
+    non-terminal, non-queued doc is such a corpse: mark it failed so the user sees a
+    clear, re-uploadable error. 'pending' is left alone — that's a job still queued
+    in Redis that this worker is about to run.
+    """
+    sessionmaker = _sessionmaker()
+    async with sessionmaker() as session:
+        result = await session.execute(
+            update(Document)
+            .where(Document.status.notin_(["pending", "done", "failed"]))
+            .values(
+                status="failed",
+                error="interrupted (worker restarted)",
+                progress_current=None,
+                progress_total=None,
+            )
+        )
+        await session.commit()
+    if result.rowcount:
+        logger.warning("reset %d interrupted document(s) to failed on startup", result.rowcount)
+
+
 async def on_shutdown(ctx: dict) -> None:
     # Release the worker's Aurora pool cleanly.
     await get_engine().dispose()
 
 
 class WorkerSettings:
-    functions = [ingest_document]
+    functions = [ingest_document, dedup_sweep_workspace]
     # redis_url must be set for the worker to run; fall back to localhost only so
     # importing this module (e.g. in tests) doesn't raise.
     redis_settings = RedisSettings.from_dsn(
         get_settings().redis_url or "redis://localhost:6379"
     )
+    on_startup = on_startup
     on_shutdown = on_shutdown
     max_jobs = 4
-    job_timeout = 600  # seconds; a large PDF's embed + extract fan-out
+    # 30 min. The first document into an empty workspace resolves every concept as
+    # new (the maximum merge-judge fan-out); 600s wasn't enough even before counting
+    # network latency. The merge phase is now concurrent, but keep a wide ceiling so
+    # a big PDF can't be cancelled mid-flight (which is what froze docs at 'merging').
+    job_timeout = 1800
+    # A genuinely failing job shouldn't burn the full timeout arq's default 5 times;
+    # two attempts covers a transient blip without a half-hour retry storm.
+    max_tries = 2
     keep_result = 3600

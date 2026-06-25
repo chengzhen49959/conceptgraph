@@ -35,6 +35,12 @@ def get_engine() -> AsyncEngine:
         # `Errno 54 Connection reset`). pre_ping catches a dead connection at
         # checkout; recycle keeps them young enough that it rarely has to.
         pool_recycle=300,
+        # Sized to cover the merge phase's concurrent concept resolutions
+        # (config.merge_concurrency, each briefly checking out a session) across the
+        # worker's concurrent jobs (WorkerSettings.max_jobs), with headroom for the
+        # API's request sessions. Default 5+10 was tight once merge went concurrent.
+        pool_size=10,
+        max_overflow=20,
     )
 
 

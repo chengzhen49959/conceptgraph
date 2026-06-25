@@ -18,7 +18,17 @@ export async function request<T>(
     cache: 'no-store',
   })
   if (!res.ok) {
-    throw new Error(`API ${res.status}: ${await res.text()}`)
+    // Surface FastAPI's `{"detail": "..."}` message directly so toasts read
+    // cleanly (e.g. the image-rejection 415); fall back to the raw body.
+    const raw = await res.text()
+    let message = raw
+    try {
+      const detail = JSON.parse(raw)?.detail
+      if (typeof detail === 'string') message = detail
+    } catch {
+      // not JSON — keep the raw text
+    }
+    throw new Error(message || `API ${res.status}`)
   }
   // 204 No Content (e.g. DELETE) has no body — don't try to parse it.
   if (res.status === 204) return undefined as T
@@ -42,8 +52,24 @@ export type DocumentStatus =
   | 'parsing'
   | 'chunking'
   | 'embedding'
+  | 'extracting'
+  | 'merging'
+  | 'clustering'
   | 'done'
   | 'failed'
+
+/** Human label for each ingest stage, shown in the documents list + status bar. */
+export const DOC_STATUS_LABEL: Record<DocumentStatus, string> = {
+  pending: 'Queued',
+  parsing: 'Parsing',
+  chunking: 'Chunking',
+  embedding: 'Embedding',
+  extracting: 'Extracting concepts',
+  merging: 'Merging',
+  clustering: 'Clustering',
+  done: 'Ready',
+  failed: 'Failed',
+}
 
 export type DocumentOut = {
   id: string
@@ -52,6 +78,10 @@ export type DocumentOut = {
   source_type: string
   status: DocumentStatus
   error: string | null
+  // Merge-phase progress (concepts resolved / total). Both null/absent outside the
+  // merging stage; the UI renders a live count + rough ETA while they're set.
+  progress_current?: number | null
+  progress_total?: number | null
 }
 
 export type CreateDocumentResponse = {
@@ -98,6 +128,31 @@ export async function uploadToS3(url: string, file: File, contentType: string) {
     headers: { 'Content-Type': contentType },
   })
   if (!res.ok) throw new Error(`S3 upload ${res.status}: ${await res.text()}`)
+}
+
+/** A concept mentioned in a document, with its synonyms — the reader matches
+ *  these strings against the source text to highlight + link them inline. */
+export type DocumentConcept = {
+  id: string
+  name: string
+  aliases: string[]
+}
+
+/** The reader payload: the parsed source plus the concepts it gave rise to.
+ *  `markdown` is null only when the source can't be recovered (still processing
+ *  or a backfill re-parse failed) — the reader degrades to a link-out then. */
+export type DocumentContent = {
+  id: string
+  title: string
+  source_type: string
+  source_url: string | null
+  markdown: string | null
+  concepts: DocumentConcept[]
+}
+
+/** Fetch a document's parsed source + its concepts for the reader view. */
+export function getDocumentContent(id: string) {
+  return apiClient<DocumentContent>(`/api/documents/${id}/content`)
 }
 
 // --- Concept graph ---------------------------------------------------------
@@ -164,6 +219,43 @@ export function getConceptPassages(id: string) {
   return apiClient<ConceptPassages>(`/api/concepts/${id}/passages`)
 }
 
+// --- Semantic search (F7) --------------------------------------------------
+
+/** A concept hit — same shape the graph nodes carry, plus a similarity score,
+ *  so a result drops straight into the graph's select-node path. */
+export type SearchConcept = {
+  id: string
+  name: string
+  description: string | null
+  cluster_id: string | null
+  mentions: number
+  score: number // cosine similarity 0..1
+}
+
+/** A source-passage hit. Not a graph node, so it carries the concept ids it
+ *  mentions; the client routes a click to the most prominent of them. */
+export type SearchPassage = {
+  chunk_id: string
+  document_id: string
+  document_title: string
+  snippet: string
+  score: number
+  concept_ids: string[]
+}
+
+export type SearchResults = {
+  concepts: SearchConcept[]
+  passages: SearchPassage[]
+}
+
+/** Embed `q` and return nearest concepts + passages in the workspace. The
+ *  palette pairs this with its instant client-side substring match. */
+export function search(q: string, workspaceId?: string, limit = 10) {
+  const params = new URLSearchParams({ q, limit: String(limit) })
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  return apiClient<SearchResults>(`/api/search?${params.toString()}`)
+}
+
 // --- Deletes ---------------------------------------------------------------
 
 /** Counts returned by a batch delete (fields present depend on the endpoint). */
@@ -191,7 +283,7 @@ export function deleteClusters(ids: string[], workspaceId?: string) {
 
 // --- Workspaces ------------------------------------------------------------
 
-export type WorkspaceRole = 'owner' | 'mentor' | 'member'
+export type WorkspaceRole = 'owner' | 'editor' | 'commenter' | 'viewer'
 
 /** A workspace as the dashboard / switcher sees it. Stats are null unless the
  *  list was requested with `withStats`. */
@@ -235,68 +327,55 @@ export function deleteWorkspace(id: string) {
   return apiClient<void>(`/api/workspaces/${id}`, { method: 'DELETE' })
 }
 
-// --- Invites & members -----------------------------------------------------
+// --- Sharing & members -----------------------------------------------------
 
-export type InviteRole = 'mentor' | 'member'
+export type InviteRole = 'editor' | 'commenter' | 'viewer'
 
-export type CreatedInvite = {
-  invite_id: string
-  token: string
-  accept_url: string
-  email: string
-  role: string
-  status: string
-}
-
+/** Preview shown on the accept page for a share-link token. */
 export type InvitePreview = {
   workspace_name: string
   role: string
-  status: string
+  status: string // enabled | disabled
+}
+
+/** The workspace's reusable share link (Notion "Copy link"). */
+export type ShareLink = {
+  enabled: boolean
+  role: InviteRole
+  token: string
+  accept_url: string
 }
 
 export type WorkspaceMemberRow = { user_id: string; role: string; is_you: boolean }
-export type PendingInvite = {
-  id: string
-  email: string
-  role: string
-  created_at: string
-}
 export type Members = {
   members: WorkspaceMemberRow[]
-  pending_invites: PendingInvite[]
-}
-
-export function createInvite(
-  workspaceId: string,
-  email: string,
-  role: InviteRole = 'mentor',
-) {
-  return apiClient<CreatedInvite>(`/api/workspaces/${workspaceId}/invites`, {
-    method: 'POST',
-    body: JSON.stringify({ email, role }),
-  })
-}
-
-/** Preview an invite by token. Unauthenticated — the token itself is the secret,
- *  so this skips the Amplify session (a logged-out invitee can still preview). */
-export function getInvite(token: string) {
-  return request<InvitePreview>(`/api/invites/${token}`, undefined)
-}
-
-export function acceptInvite(token: string) {
-  return apiClient<{ workspace_id: string }>(`/api/invites/${token}/accept`, {
-    method: 'POST',
-  })
-}
-
-export function revokeInvite(workspaceId: string, inviteId: string) {
-  return apiClient<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}`, {
-    method: 'DELETE',
-  })
 }
 
 export function listMembers(workspaceId: string) {
   return apiClient<Members>(`/api/workspaces/${workspaceId}/members`)
+}
+
+/** Join a workspace via its reusable share link (no email match). */
+export function acceptShareLink(token: string) {
+  return apiClient<{ workspace_id: string }>(`/api/share/${token}/accept`, {
+    method: 'POST',
+  })
+}
+
+/** The workspace's reusable share link (owner only); lazily created server-side. */
+export function getShareLink(workspaceId: string) {
+  return apiClient<ShareLink>(`/api/workspaces/${workspaceId}/share-link`)
+}
+
+/** Enable/disable the share link or change the role it grants (owner only). */
+export function updateShareLink(
+  workspaceId: string,
+  patch: { enabled?: boolean; role?: InviteRole },
+) {
+  return apiClient<ShareLink>(`/api/workspaces/${workspaceId}/share-link`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
 }
 
 // --- Graph editing (M2) ----------------------------------------------------
@@ -395,6 +474,59 @@ export function getAudit(workspaceId: string, limit = 50) {
 
 export function undoAudit(id: string) {
   return apiClient<AuditEntry>(`/api/graph/audit/${id}/undo`, { method: 'POST' })
+}
+
+// --- Unified activity feed: graph edits + annotations in one timeline ------
+
+/** One row in the Activity panel. Graph edits carry `audit_id` (→ undo); both
+ *  graph-concept and annotation events carry `target_concept_id` (→ jump to it). */
+export type ActivityEvent = {
+  id: string
+  source_type: 'graph' | 'annotation'
+  action: string
+  summary: string
+  actor_id: string | null
+  actor_role: string | null
+  actor_is_you: boolean
+  target_concept_id: string | null
+  audit_id: string | null
+  can_undo: boolean
+  undone: boolean
+  created_at: string
+}
+
+export type ActivityScope = 'all' | 'mine' | 'others'
+/** Coarse type filter; matches the backend's `_event_type`. */
+export type ActivityType = 'edit' | 'highlight' | 'flag' | 'comment'
+
+export function getActivity(
+  workspaceId: string,
+  opts: {
+    scope?: ActivityScope
+    types?: ActivityType[]
+    before?: string
+    limit?: number
+  } = {},
+) {
+  const q = new URLSearchParams({ workspace_id: workspaceId })
+  if (opts.scope && opts.scope !== 'all') q.set('scope', opts.scope)
+  if (opts.types?.length) q.set('types', opts.types.join(','))
+  if (opts.before) q.set('before', opts.before)
+  q.set('limit', String(opts.limit ?? 50))
+  return apiClient<ActivityEvent[]>(`/api/activity?${q.toString()}`)
+}
+
+export function getActivityUnread(workspaceId: string) {
+  return apiClient<{ count: number }>(
+    `/api/activity/unread_count?workspace_id=${workspaceId}`,
+  )
+}
+
+export function markActivitySeen(workspaceId: string) {
+  return apiClient<{ ok: boolean }>(
+    `/api/activity/seen?workspace_id=${workspaceId}`,
+    { method: 'POST' },
+  )
 }
 
 // --- Annotations (M3) ------------------------------------------------------

@@ -13,6 +13,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -86,43 +87,44 @@ class WorkspaceMember(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
     )
     user_id: Mapped[str] = mapped_column(String, primary_key=True)  # Cognito sub
-    # owner (the student who owns the project) | mentor (advisor: edit + annotate)
-    # | member (read + comment). Free-form string so widening the vocabulary is a
-    # convention change, not a migration.
+    # Notion-style roles: owner (project owner: full access) | editor (edit graph
+    # + annotate) | commenter (read + comment) | viewer (read only). Free-form
+    # string so widening the vocabulary is a convention change, not a migration.
     role: Mapped[str] = mapped_column(String, nullable=False, default="owner")
+    # High-water mark for the activity feed's unread badge: the last time this
+    # member opened the Activity panel. Unread = events by *others* newer than
+    # this. Nullable (never opened → everything by others counts as unread).
+    last_seen_activity_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
-class WorkspaceInvite(Base):
-    __tablename__ = "workspace_invites"
+class WorkspaceShareLink(Base):
+    __tablename__ = "workspace_share_links"
 
-    # Invite-before-account: there is no users table, so we can't resolve an email
-    # to a Cognito sub at invite time. We key the invite by email and bind the
-    # accepter's sub only when they log in and POST /accept (their id token then
-    # carries the email). One live (pending) invite per email per workspace is
-    # enforced by a partial unique index created in the migration.
+    # A reusable, non-email-bound invite link (Notion "Copy link"). Exactly one
+    # row per workspace: anyone who opens the link and logs in joins as `role`.
+    # Multi-use, toggled on/off via `enabled`, with a mutable role and a rotatable
+    # token. Disabling (or rotating the token) is how a link is revoked.
     id: Mapped[uuid.UUID] = _pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[str] = mapped_column(String, nullable=False)
-    role: Mapped[str] = mapped_column(String, nullable=False)  # role granted on accept
+    role: Mapped[str] = mapped_column(String, nullable=False)  # role granted on join
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     token: Mapped[str] = mapped_column(String, nullable=False)  # URL-safe secret
-    invited_by: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
-    # pending → accepted | revoked
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    created_by: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    accepted_at: Mapped[datetime | None] = mapped_column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    accepted_by: Mapped[str | None] = mapped_column(String, nullable=True)  # Cognito sub
 
     __table_args__ = (
-        # ix on workspace_id for the members/invites panel; the unique token index
-        # and the partial "one pending invite per (workspace, lower(email))" index
-        # are created in the migration (op.execute) — functional/partial DDL.
-        Index("ix_workspace_invites_workspace", "workspace_id"),
+        # One share link per workspace. The unique token index is created in the
+        # migration (op.execute), mirroring uq_invites_token.
+        Index("uq_share_links_workspace", "workspace_id", unique=True),
     )
 
 
@@ -135,15 +137,52 @@ class Document(Base):
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     source_type: Mapped[str] = mapped_column(String, nullable=False)  # pdf | markdown | text
-    # pending → parsing → chunking → embedding → done | failed
+    # pending → parsing → chunking → embedding → extracting → merging → clustering
+    #   → done | failed  (worker advances this at each phase boundary; the frontend polls it)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    # Sub-stage progress for the slow merge phase: how many distinct concepts have been
+    # resolved (current) out of the total this document contributes (total). Both NULL
+    # outside merging — every status transition clears them (worker._set_status) — so the
+    # UI renders a live "Merging 30/62" only while it's meaningful. Display only; the
+    # pipeline never reads them back.
+    progress_current: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     s3_key: Mapped[str] = mapped_column(String, nullable=False)  # object location to fetch + parse
+    # Web origin this document was clipped from (Chrome extension's POST /api/imports/clip).
+    # NULL for file uploads, which have no source URL. Provenance only — the pipeline
+    # doesn't read it; it's surfaced in the UI so a concept can link back to its source page.
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Normalised source_url (tracking params + fragment stripped — see services/urls.py),
+    # the per-workspace de-dup key: clip() looks one up before ingesting so re-clipping a
+    # page returns the existing document instead of a duplicate. NULL for uploads. Derived
+    # from source_url; never read by the pipeline.
+    source_url_canonical: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Page metadata scraped client-side at clip time (author, published date, site name,
+    # image, description). NULL for uploads. Provenance/display only — not a pipeline input.
+    # Attribute is `doc_metadata`; plain `metadata` is reserved by the Declarative base.
+    doc_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)  # failure message when status=failed
+    # One doc-level summary (spec: resource.summary), aggregated from the per-chunk
+    # summaries the extractor returns and embedded for future document search.
+    # Populated on ingest; nullable so a pre-summary document stays valid.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBED_DIM), nullable=True
+    )
+    # The full parsed source as Markdown (PDFs rendered, md/text decoded) — the
+    # exact text the pipeline chunked, kept so the reader can show the original.
+    # Nullable: pre-feature documents have none until the content endpoint lazily
+    # backfills them by re-parsing from S3. Web clips keep `source_url` as well.
+    body_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
-    __table_args__ = (Index("ix_documents_workspace_status", "workspace_id", "status"),)
+    __table_args__ = (
+        Index("ix_documents_workspace_status", "workspace_id", "status"),
+        # De-dup lookup: find a workspace's existing clip of a page by canonical URL.
+        Index("ix_documents_workspace_canonical", "workspace_id", "source_url_canonical"),
+    )
 
 
 class Chunk(Base):
@@ -173,8 +212,16 @@ class Cluster(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     label: Mapped[str | None] = mapped_column(String, nullable=True)  # LLM-generated topic label
+    # Emergent hierarchy (multi-level Leiden): a leaf cluster carries concepts; a
+    # parent groups leaf clusters. NULL for a top-level cluster.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("clusters.id", ondelete="CASCADE"), nullable=True
+    )
 
-    __table_args__ = (Index("ix_clusters_workspace", "workspace_id"),)
+    __table_args__ = (
+        Index("ix_clusters_workspace", "workspace_id"),
+        Index("ix_clusters_parent", "parent_id"),
+    )
 
 
 class Concept(Base):
@@ -256,15 +303,24 @@ class Edge(Base):
         ForeignKey("concepts.id", ondelete="CASCADE"), nullable=False
     )
     relation: Mapped[str] = mapped_column(String, nullable=False)
+    # 'relation' — an LLM-extracted directed relation, shown in the graph view.
+    # 'cooccur' — an undirected same-chunk co-occurrence edge (relation=''), a
+    # clustering substrate hidden from the view: it densifies the graph so Leiden
+    # finds real communities instead of leaving sparsely-related concepts isolated.
+    # Both kinds live in one table so the partition reads a single weighted edge set.
+    kind: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'relation'"))
     weight: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
     __table_args__ = (
-        # A repeated relation increments weight instead of inserting a new row.
+        # A repeated edge increments weight instead of inserting a new row. `kind` is
+        # part of the key so a co-occurrence edge and a directed relation between the
+        # same two concepts coexist rather than collide.
         UniqueConstraint(
             "workspace_id",
             "source_concept_id",
             "target_concept_id",
             "relation",
+            "kind",
             name="uq_edges_triple",
         ),
         Index("ix_edges_workspace", "workspace_id"),
@@ -293,7 +349,7 @@ class GraphAudit(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     before: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     after: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # user | mentor | pipeline — lets the feed distinguish a mentor's edits.
+    # user | editor | pipeline — lets the feed distinguish a non-owner editor's edits.
     source: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'user'")
     )
@@ -311,6 +367,11 @@ class GraphAudit(Base):
 
 class Annotation(Base):
     __tablename__ = "annotations"
+    # Fetch server-evaluated defaults (the ``onupdate=now()`` on ``updated_at``)
+    # via RETURNING on INSERT *and UPDATE*. Without this, a status change expires
+    # ``updated_at`` after commit; reading it in ``_ann_out`` then triggers a sync
+    # lazy-load on the AsyncSession → ``MissingGreenlet`` → 500. See annotations.py.
+    __mapper_args__ = {"eager_defaults": True}
 
     # A mentor's (or member's) note on the graph: highlight a promising node, flag
     # a wrong direction, or comment + reply in a thread. The student reviews these

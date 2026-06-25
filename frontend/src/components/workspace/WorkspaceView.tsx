@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   type Annotation,
+  type DocumentContent,
   type DocumentOut,
   type GraphData,
   type WorkspaceCard,
@@ -13,6 +14,8 @@ import {
   deleteClusters,
   deleteConcept,
   deleteDocuments,
+  getActivityUnread,
+  getDocumentContent,
   getGraph,
   isProcessing,
   listAnnotations,
@@ -21,17 +24,15 @@ import {
   uploadToS3,
 } from '@/lib/api'
 import { useGraphSettings } from '@/lib/graph-settings'
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppTopbar } from './AppTopbar'
 import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
 import { GraphEditToolbar } from './GraphEditToolbar'
+import { DocumentReader } from './DocumentReader'
+import { LocalGraphMini } from './LocalGraphMini'
 import { ConceptPanel } from './ConceptDetail'
+import { TopicPanel } from './TopicDetail'
 import { SearchPalette } from './SearchPalette'
 import { StatusBar } from './StatusBar'
 
@@ -57,11 +58,41 @@ export function WorkspaceView({
   const [busy, setBusy] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [activityUnread, setActivityUnread] = useState(0)
 
   // Sidebar→canvas highlight: hovering a topic row lights all its concepts,
   // hovering a concept row lights it + neighbours. At most one is set at a time.
   const [hoverTopicId, setHoverTopicId] = useState<string | null>(null)
   const [hoverConceptId, setHoverConceptId] = useState<string | null>(null)
+
+  // A topic focused from search acts like a node selection: it persistently
+  // lights its whole cluster and centres it in the canvas. Focus and concept
+  // selection are mutually exclusive — picking either clears the other.
+  const [focusedTopicId, setFocusedTopicId] = useState<string | null>(null)
+  const selectConcept = useCallback((id: string | null) => {
+    setFocusedTopicId(null)
+    setSelectedId(id)
+  }, [])
+  const focusTopic = useCallback((id: string) => {
+    setSelectedId(null)
+    setFocusedTopicId(id)
+  }, [])
+
+  // Reading view: when a document is open, the main area shows its source text and
+  // the full graph shrinks to a corner local graph. The payload (parsed Markdown +
+  // the doc's concepts) is fetched on demand. Selecting a concept from either the
+  // text or the mini graph restores the full graph with that concept selected.
+  const [readingDocId, setReadingDocId] = useState<string | null>(null)
+  const [readingContent, setReadingContent] = useState<DocumentContent | null>(null)
+  const [readingLoading, setReadingLoading] = useState(false)
+  const closeReader = useCallback(() => setReadingDocId(null), [])
+  const openConceptFromReader = useCallback(
+    (id: string) => {
+      setReadingDocId(null)
+      selectConcept(id)
+    },
+    [selectConcept],
+  )
 
   // Graph control-panel state (filters / display / forces / local graph),
   // persisted to localStorage per workspace. NavSidebar owns the whole control
@@ -99,6 +130,21 @@ export function WorkspaceView({
     }
   }, [workspaceId])
 
+  // Unread activity badge (events by others since this member last opened the
+  // feed). Optional chrome — swallow errors. Reset to 0 when the feed is opened.
+  const refreshActivityUnread = useCallback(async () => {
+    if (!workspaceId) {
+      setActivityUnread(0)
+      return
+    }
+    try {
+      setActivityUnread((await getActivityUnread(workspaceId)).count)
+    } catch {
+      // ignore
+    }
+  }, [workspaceId])
+  const clearActivityUnread = useCallback(() => setActivityUnread(0), [])
+
   // Initial document load.
   useEffect(() => {
     refreshDocs().finally(() => setLoadingDocs(false))
@@ -108,6 +154,11 @@ export function WorkspaceView({
   useEffect(() => {
     refreshAnnotations()
   }, [refreshAnnotations])
+
+  // Load the unread activity count on workspace change (the poll keeps it fresh).
+  useEffect(() => {
+    refreshActivityUnread()
+  }, [refreshActivityUnread])
 
   // Poll while any document is still being ingested.
   const processing = docs.some((d) => isProcessing(d.status))
@@ -140,6 +191,25 @@ export function WorkspaceView({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Load the reading payload when a document is opened; clear it when closed. A
+  // failed fetch leaves content null, so the reader shows its unavailable state.
+  useEffect(() => {
+    if (!readingDocId) {
+      setReadingContent(null)
+      return
+    }
+    let alive = true
+    setReadingLoading(true)
+    setReadingContent(null)
+    getDocumentContent(readingDocId)
+      .then((c) => alive && setReadingContent(c))
+      .catch((e) => alive && toast.error((e as Error).message))
+      .finally(() => alive && setReadingLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [readingDocId])
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -245,9 +315,47 @@ export function WorkspaceView({
     [refreshGraph],
   )
 
+  // Batch concept delete for the sidebar's per-concept multi-select. There's no
+  // batch endpoint (concept delete is one id + optional cascade), so fan out the
+  // single calls and tolerate partial failure — one rejected delete shouldn't sink
+  // the rest. Refetch once at the end. Closes the open panel if its concept went.
+  const handleDeleteConcepts = useCallback(
+    async (ids: string[]) => {
+      const results = await Promise.allSettled(ids.map((id) => deleteConcept(id)))
+      const ok = results.filter((r) => r.status === 'fulfilled').length
+      const failed = ids.length - ok
+      setSelectedId((cur) => (cur && ids.includes(cur) ? null : cur))
+      await refreshGraph()
+      if (ok)
+        toast.success(
+          `Deleted ${ok} concept${ok > 1 ? 's' : ''}` +
+            (failed ? ` · ${failed} failed` : ''),
+        )
+      else if (failed) toast.error(`Failed to delete ${failed} concept${failed > 1 ? 's' : ''}`)
+    },
+    [refreshGraph],
+  )
+
   const selectedNode = useMemo(
     () => graph.nodes.find((n) => n.id === selectedId) ?? null,
     [graph.nodes, selectedId],
+  )
+  const focusedCluster = useMemo(
+    () => graph.clusters.find((c) => c.id === focusedTopicId) ?? null,
+    [graph.clusters, focusedTopicId],
+  )
+
+  // The open document, derived — so deleting it out from under the reader closes
+  // the view for free (same pattern as focusedCluster), no reconciliation effect.
+  const readingDoc = useMemo(
+    () => docs.find((d) => d.id === readingDocId) ?? null,
+    [docs, readingDocId],
+  )
+
+  // The open document's concepts — the node set for the corner local graph.
+  const readingConceptIds = useMemo(
+    () => new Set(readingContent?.concepts.map((c) => c.id) ?? []),
+    [readingContent],
   )
 
   // The active workspace's card (for role-gated chrome). Member management is
@@ -257,8 +365,13 @@ export function WorkspaceView({
     [workspaces, workspaceId],
   )
   const canManageMembers = current?.role === 'owner' && current?.type === 'shared'
-  // Owner (student) and mentor may edit the graph; plain members are read-only.
-  const canEdit = current?.role === 'owner' || current?.role === 'mentor'
+  // Owner and editor may edit the graph; commenter/viewer cannot.
+  const canEdit = current?.role === 'owner' || current?.role === 'editor'
+  // Owner / editor / commenter may comment; a viewer is read-only.
+  const canComment =
+    current?.role === 'owner' ||
+    current?.role === 'editor' ||
+    current?.role === 'commenter'
 
   // Open highlight/flag markers per concept, for the canvas overlay.
   const annotationsByConceptId = useMemo(() => {
@@ -284,7 +397,7 @@ export function WorkspaceView({
   )
 
   // Async collaboration: on a shared workspace, periodically re-fetch the graph
-  // and annotations so a student sees a mentor's edits/flags (and vice versa)
+  // and annotations so a student sees an editor's edits/flags (and vice versa)
   // without manual refresh. No WebSocket — reuses the polling pattern, slower.
   const isShared = current?.type === 'shared'
   useEffect(() => {
@@ -292,9 +405,10 @@ export function WorkspaceView({
     const t = setInterval(() => {
       refreshGraph()
       refreshAnnotations()
+      refreshActivityUnread()
     }, 6000)
     return () => clearInterval(t)
-  }, [isShared, refreshGraph, refreshAnnotations])
+  }, [isShared, refreshGraph, refreshAnnotations, refreshActivityUnread])
 
   return (
     <SidebarProvider className="h-screen">
@@ -309,32 +423,64 @@ export function WorkspaceView({
         currentId={workspaceId}
         email={email}
         onOpenSearch={() => setSearchOpen(true)}
-        onSelectConcept={setSelectedId}
+        onSelectConcept={selectConcept}
         onHoverTopic={setHoverTopicId}
         onHoverConcept={setHoverConceptId}
         onDeleteDocuments={handleDeleteDocuments}
         onDeleteClusters={handleDeleteClusters}
+        onDeleteConcepts={handleDeleteConcepts}
+        onSelectDocument={setReadingDocId}
+        activeDocId={readingDocId}
         settings={settings}
         onChange={patchSettings}
       />
 
-      <SidebarInset className="flex min-h-0 flex-1 flex-col">
+      <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AppTopbar
           onOpenSearch={() => setSearchOpen(true)}
           workspaceId={workspaceId}
           canManageMembers={!!canManageMembers}
           onGraphChanged={refreshGraph}
+          activityUnread={activityUnread}
+          onActivitySeen={clearActivityUnread}
+          onNavigateConcept={selectConcept}
         />
 
-        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel id="center" className="min-w-0">
-            <main className="relative h-full min-w-0">
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {readingDoc ? (
+            <>
+              <DocumentReader
+                content={readingContent}
+                loading={readingLoading}
+                onClose={closeReader}
+                onSelectConcept={openConceptFromReader}
+              />
+              {/* The full graph, shrunk to a corner local graph of this document
+                  (Obsidian's 关系图谱 pane). Shown only for an uploaded file with
+                  concepts: a web clip renders as an embedded page (source_url set),
+                  which can't carry inline concept links — so its corner graph would
+                  dangle with nothing in the reader to jump from. */}
+              {!readingContent?.source_url && readingConceptIds.size > 0 && (
+                <div className="absolute right-3 top-3 z-20 h-44 w-72">
+                  <LocalGraphMini
+                    graph={graph}
+                    conceptIds={readingConceptIds}
+                    selectedId={selectedId}
+                    topicColors={settings.topicColors}
+                    onSelectConcept={openConceptFromReader}
+                    onExpand={closeReader}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
               {canEdit && (
                 <GraphEditToolbar
                   workspaceId={workspaceId}
                   onCreated={(id) => {
                     refreshGraph()
-                    setSelectedId(id)
+                    selectConcept(id)
                   }}
                 />
               )}
@@ -342,8 +488,9 @@ export function WorkspaceView({
                 data={graph}
                 settings={settings}
                 selectedId={selectedId}
-                onSelectId={setSelectedId}
+                onSelectId={selectConcept}
                 highlightClusterId={hoverTopicId}
+                focusedClusterId={focusedTopicId}
                 highlightConceptId={hoverConceptId}
                 annotationsByConceptId={annotationsByConceptId}
                 canEdit={canEdit}
@@ -351,44 +498,52 @@ export function WorkspaceView({
                 onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
                 onDeleteConcept={handleDeleteConcept}
               />
-            </main>
-          </ResizablePanel>
-
-          {selectedNode && (
-            <>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                id="right"
-                defaultSize="320px"
-                minSize="260px"
-                maxSize="480px"
-                groupResizeBehavior="preserve-pixel-size"
-                className="min-w-0"
-              >
-                <ConceptPanel
-                  node={selectedNode}
-                  graph={graph}
-                  canEdit={canEdit}
-                  annotations={conceptAnnotations}
-                  workspaceId={workspaceId}
-                  onClose={() => setSelectedId(null)}
-                  onNavigate={setSelectedId}
-                  onMutated={refreshGraph}
-                  onAnnotationsChanged={refreshAnnotations}
-                />
-              </ResizablePanel>
             </>
           )}
-        </ResizablePanelGroup>
+        </div>
 
         <StatusBar graph={graph} documents={docs} />
       </SidebarInset>
+
+      {/* Full-height detail panel: sibling of the inset so it spans the whole
+          window height, symmetric with the left sidebar. The topbar and status
+          bar live inside the inset and only span the canvas. */}
+      {selectedNode && (
+        <aside className="flex w-80 shrink-0 border-l bg-background">
+          <ConceptPanel
+            node={selectedNode}
+            graph={graph}
+            canEdit={canEdit}
+            canComment={canComment}
+            annotations={conceptAnnotations}
+            workspaceId={workspaceId}
+            onClose={() => setSelectedId(null)}
+            onNavigate={selectConcept}
+            onMutated={refreshGraph}
+            onAnnotationsChanged={refreshAnnotations}
+          />
+        </aside>
+      )}
+
+      {focusedCluster && (
+        <aside className="flex w-80 shrink-0 border-l bg-background">
+          <TopicPanel
+            cluster={focusedCluster}
+            graph={graph}
+            onClose={() => setFocusedTopicId(null)}
+            onSelectConcept={selectConcept}
+          />
+        </aside>
+      )}
 
       <SearchPalette
         open={searchOpen}
         onOpenChange={setSearchOpen}
         nodes={graph.nodes}
-        onPick={setSelectedId}
+        clusters={graph.clusters}
+        workspaceId={workspaceId}
+        onPick={selectConcept}
+        onPickTopic={focusTopic}
       />
     </SidebarProvider>
   )

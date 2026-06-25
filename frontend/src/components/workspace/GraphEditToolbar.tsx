@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 
 /**
- * Floating editor controls over the graph canvas (shown only to owner/mentor).
+ * Floating editor controls over the graph canvas (shown only to owner/editor).
  * "Add node" creates a hand-authored direction concept; edge wiring and node
  * edit/delete live in the concept detail panel where a node is already selected.
  */
