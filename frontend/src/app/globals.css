@@ -120,3 +120,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Transient "you jumped here" pulse on a concept chip after a scroll-to
+   (graph→text / Sources→reader). Fades a primary ring out over ~1.3s. */
+@keyframes concept-pulse {
+  from {
+    box-shadow: 0 0 0 0.25rem color-mix(in oklch, var(--primary) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 0.25rem transparent;
+  }
+}
+.concept-pulse {
+  border-radius: 0.25rem;
+  animation: concept-pulse 1.3s ease-out;
+}

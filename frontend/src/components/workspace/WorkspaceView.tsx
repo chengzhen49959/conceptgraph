@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { X } from 'lucide-react'
 import {
   type Annotation,
   type DocumentContent,
@@ -30,7 +31,7 @@ import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
 import { GraphEditToolbar } from './GraphEditToolbar'
 import { DocumentReader } from './DocumentReader'
-import { LocalGraphMini } from './LocalGraphMini'
+import { LocalGraphPanel } from './LocalGraphPanel'
 import { ConceptPanel } from './ConceptDetail'
 import { TopicPanel } from './TopicDetail'
 import { SearchPalette } from './SearchPalette'
@@ -85,14 +86,26 @@ export function WorkspaceView({
   const [readingDocId, setReadingDocId] = useState<string | null>(null)
   const [readingContent, setReadingContent] = useState<DocumentContent | null>(null)
   const [readingLoading, setReadingLoading] = useState(false)
-  const closeReader = useCallback(() => setReadingDocId(null), [])
-  const openConceptFromReader = useCallback(
-    (id: string) => {
-      setReadingDocId(null)
-      selectConcept(id)
-    },
-    [selectConcept],
-  )
+  // The concept nearest the top of the reader as you scroll — highlights its node
+  // in the co-present graph (text→graph sync). Null when nothing's in view.
+  const [readingConceptId, setReadingConceptId] = useState<string | null>(null)
+  // The reading-view local-graph panel can expand to a fullscreen graph (Obsidian's
+  // two icons): 'local' = just this document's concepts, 'global' = the whole
+  // workspace. null = collapsed to the rail thumbnail.
+  const [expandedGraphScope, setExpandedGraphScope] = useState<'local' | 'global' | null>(null)
+  const closeReader = useCallback(() => {
+    setReadingDocId(null)
+    setExpandedGraphScope(null)
+  }, [])
+  // Selecting a concept from the reader (chip / local graph) no longer closes the
+  // reader — text and graph stay co-present, and the selection scrolls the prose
+  // to that concept (DocumentReader's scrollToConceptId).
+  const openConceptFromReader = selectConcept
+  // Open a source document in the reader without disturbing the selection — the
+  // reader scrolls to the selected concept (what the Sources panel is showing).
+  const openInReader = useCallback((documentId: string) => {
+    setReadingDocId(documentId)
+  }, [])
 
   // Graph control-panel state (filters / display / forces / local graph),
   // persisted to localStorage per workspace. NavSidebar owns the whole control
@@ -410,6 +423,35 @@ export function WorkspaceView({
     return () => clearInterval(t)
   }, [isShared, refreshGraph, refreshAnnotations, refreshActivityUnread])
 
+  // The graph canvas, shared across the full workspace view, the reading-view
+  // thumbnail, and the fullscreen overlay. `restrict` scopes it to one document's
+  // concepts (the local graph); undefined = the whole workspace. `opts.thumbnail`
+  // switches on the small-pane behaviour (auto-fit, no hover card); `opts.highlight`
+  // lights an explicit concept set (the global overlay lights the open document's
+  // concepts within the whole graph). Kept as one element so its wiring never drifts.
+  const graphView = (
+    restrict?: ReadonlySet<string>,
+    opts?: { thumbnail?: boolean; highlight?: ReadonlySet<string> },
+  ) => (
+    <GraphCanvas
+      data={graph}
+      settings={settings}
+      selectedId={selectedId}
+      onSelectId={selectConcept}
+      highlightClusterId={hoverTopicId}
+      focusedClusterId={focusedTopicId}
+      highlightConceptId={hoverConceptId ?? (readingDoc ? readingConceptId : null)}
+      highlightConceptIds={opts?.highlight}
+      annotationsByConceptId={annotationsByConceptId}
+      canEdit={canEdit}
+      onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
+      onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
+      onDeleteConcept={handleDeleteConcept}
+      restrictToIds={restrict}
+      thumbnail={opts?.thumbnail ?? false}
+    />
+  )
+
   return (
     <SidebarProvider className="h-screen">
       <NavSidebar
@@ -448,31 +490,28 @@ export function WorkspaceView({
 
         <div className="relative min-h-0 min-w-0 flex-1">
           {readingDoc ? (
-            <>
-              <DocumentReader
-                content={readingContent}
-                loading={readingLoading}
-                onClose={closeReader}
-                onSelectConcept={openConceptFromReader}
-              />
-              {/* The full graph, shrunk to a corner local graph of this document
-                  (Obsidian's 关系图谱 pane). Shown only for an uploaded file with
-                  concepts: a web clip renders as an embedded page (source_url set),
-                  which can't carry inline concept links — so its corner graph would
-                  dangle with nothing in the reader to jump from. */}
-              {!readingContent?.source_url && readingConceptIds.size > 0 && (
-                <div className="absolute right-3 top-3 z-20 h-44 w-72">
-                  <LocalGraphMini
-                    graph={graph}
+            // Co-present reading workspace (Obsidian's layout): the source text fills
+            // the width, with a right rail holding this document's local-graph
+            // thumbnail above the heading outline. A web clip renders as an embedded
+            // page that can't carry inline concept links, so it gets no graph — just
+            // the reader (DocumentReader drops the rail when localGraph is undefined).
+            <DocumentReader
+              content={readingContent}
+              loading={readingLoading}
+              onClose={closeReader}
+              onSelectConcept={openConceptFromReader}
+              scrollToConceptId={selectedId}
+              onActiveConceptChange={setReadingConceptId}
+              localGraph={
+                !readingContent?.source_url && readingConceptIds.size > 0 ? (
+                  <LocalGraphPanel
                     conceptIds={readingConceptIds}
-                    selectedId={selectedId}
-                    topicColors={settings.topicColors}
-                    onSelectConcept={openConceptFromReader}
-                    onExpand={closeReader}
+                    renderGraph={(restrict) => graphView(restrict, { thumbnail: true })}
+                    onExpand={setExpandedGraphScope}
                   />
-                </div>
-              )}
-            </>
+                ) : undefined
+              }
+            />
           ) : (
             <>
               {canEdit && (
@@ -484,21 +523,36 @@ export function WorkspaceView({
                   }}
                 />
               )}
-              <GraphCanvas
-                data={graph}
-                settings={settings}
-                selectedId={selectedId}
-                onSelectId={selectConcept}
-                highlightClusterId={hoverTopicId}
-                focusedClusterId={focusedTopicId}
-                highlightConceptId={hoverConceptId}
-                annotationsByConceptId={annotationsByConceptId}
-                canEdit={canEdit}
-                onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
-                onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
-                onDeleteConcept={handleDeleteConcept}
-              />
+              {graphView()}
             </>
+          )}
+
+          {expandedGraphScope && readingDoc && (
+            // Fullscreen graph over the reading area (Obsidian's expanded 关系图谱):
+            // 'local' frames just this document's concepts, 'global' the whole
+            // workspace. absolute inset-0 covers the reader but leaves the topbar,
+            // status bar, and side panels in place.
+            <div className="absolute inset-0 z-30 flex flex-col bg-background">
+              <div className="flex items-center justify-between border-b px-3 py-1.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {expandedGraphScope === 'local' ? 'Local graph' : 'Full graph'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGraphScope(null)}
+                  title="Close"
+                  aria-label="Close graph"
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="relative min-h-0 flex-1">
+                {expandedGraphScope === 'local'
+                  ? graphView(readingConceptIds)
+                  : graphView(undefined, { highlight: readingConceptIds })}
+              </div>
+            </div>
           )}
         </div>
 
@@ -521,6 +575,7 @@ export function WorkspaceView({
             onNavigate={selectConcept}
             onMutated={refreshGraph}
             onAnnotationsChanged={refreshAnnotations}
+            onOpenInReader={openInReader}
           />
         </aside>
       )}

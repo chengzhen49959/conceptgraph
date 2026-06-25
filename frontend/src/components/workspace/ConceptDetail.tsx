@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   ChevronRight,
   FileText,
   Pencil,
@@ -38,6 +39,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Highlighted, snippetAround } from '@/lib/passage-format'
 import { ConceptAnnotations } from './ConceptAnnotations'
 import { ConceptCombobox } from './ConceptCombobox'
 
@@ -62,65 +64,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const EMPTY_DOCS: ReadonlySet<string> = new Set()
-const SNIPPET_BEFORE = 120 // chars kept before the matched term
-const SNIPPET_AFTER = 160 // chars kept after it
-const FALLBACK_LEN = 240 // head of the chunk shown when no term is found
-
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-/** A readable window of `content` around the first occurrence of any term,
- *  with the term itself preserved for highlighting. Chunks are ~512 tokens, so
- *  showing the whole thing would bury the mention; this trims to the sentence
- *  or two around it. Falls back to the head of the chunk when no term matches
- *  (alias morphology, stemming, casing the search missed). */
-function snippetAround(content: string, terms: string[]): string {
-  const lc = content.toLowerCase()
-  let at = -1
-  let hitLen = 0
-  for (const t of terms) {
-    const i = lc.indexOf(t.toLowerCase())
-    if (i !== -1 && (at === -1 || i < at)) {
-      at = i
-      hitLen = t.length
-    }
-  }
-  if (at === -1) {
-    return content.length > FALLBACK_LEN ? content.slice(0, FALLBACK_LEN) + '…' : content
-  }
-  const start = Math.max(0, at - SNIPPET_BEFORE)
-  const end = Math.min(content.length, at + hitLen + SNIPPET_AFTER)
-  return (
-    (start > 0 ? '…' : '') + content.slice(start, end) + (end < content.length ? '…' : '')
-  )
-}
-
-/** Renders `text` with every occurrence of any term wrapped in <mark>. Terms
- *  are matched case-insensitively and as plain substrings (no word boundary —
- *  Chinese has none). Longest-first so a term isn't pre-empted by a shorter one
- *  that is its prefix. */
-function Highlighted({ text, terms }: { text: string; terms: string[] }) {
-  const re = useMemo(() => {
-    const valid = terms.filter(Boolean).map(escapeRegExp).sort((a, b) => b.length - a.length)
-    return valid.length ? new RegExp(`(${valid.join('|')})`, 'gi') : null
-  }, [terms])
-  if (!re) return <>{text}</>
-  // split on a single capturing group → odd indices are the matched terms.
-  return (
-    <>
-      {text.split(re).map((part, i) =>
-        i % 2 === 1 ? (
-          <mark key={i} className="rounded-sm bg-primary/20 px-0.5 text-foreground">
-            {part}
-          </mark>
-        ) : (
-          part
-        ),
-      )}
-    </>
-  )
-}
 
 export function ConceptPanel({
   node,
@@ -133,6 +76,7 @@ export function ConceptPanel({
   onNavigate,
   onMutated,
   onAnnotationsChanged,
+  onOpenInReader,
 }: {
   node: GraphNode
   graph: GraphData
@@ -148,6 +92,9 @@ export function ConceptPanel({
   onMutated: () => void
   // Refetch the workspace annotation list after a note / highlight / flag change.
   onAnnotationsChanged: () => void
+  // Open a source document in the reader; the reader scrolls to this concept (the
+  // selected one) since it's what the panel is showing.
+  onOpenInReader: (documentId: string) => void
 }) {
   // Fetched data is tagged with the concept id it belongs to. The view derives
   // both the current-concept data and its loading flag from that tag, so a
@@ -493,27 +440,37 @@ export function ConceptPanel({
                         key={g.document_id}
                         className="overflow-hidden rounded-md border"
                       >
-                        <button
-                          onClick={() => toggleDoc(g.document_id)}
-                          aria-expanded={open}
-                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
-                        >
-                          <ChevronRight
-                            className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${
-                              open ? 'rotate-90' : ''
-                            }`}
-                          />
-                          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate" title={g.title}>
-                            {g.title}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className="shrink-0 font-normal tabular-nums"
+                        <div className="flex items-center">
+                          <button
+                            onClick={() => toggleDoc(g.document_id)}
+                            aria-expanded={open}
+                            className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
                           >
-                            {g.items.length}
-                          </Badge>
-                        </button>
+                            <ChevronRight
+                              className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${
+                                open ? 'rotate-90' : ''
+                              }`}
+                            />
+                            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1 truncate" title={g.title}>
+                              {g.title}
+                            </span>
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 font-normal tabular-nums"
+                            >
+                              {g.items.length}
+                            </Badge>
+                          </button>
+                          <button
+                            onClick={() => onOpenInReader(g.document_id)}
+                            aria-label="Open in reader"
+                            title="Open in reader and jump to this concept"
+                            className="shrink-0 self-stretch px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          >
+                            <BookOpen className="size-3.5" />
+                          </button>
+                        </div>
                         {open && (
                           <div className="space-y-2 border-t bg-muted/30 px-2.5 py-2">
                             {g.items.map((p) => (

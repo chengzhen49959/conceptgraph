@@ -105,17 +105,27 @@ export function GraphCanvas({
   highlightClusterId,
   focusedClusterId,
   highlightConceptId,
+  highlightConceptIds,
   annotationsByConceptId,
   canEdit = false,
   onToggleHighlight,
   onToggleFlag,
   onDeleteConcept,
+  restrictToIds,
+  thumbnail = false,
 }: {
   data: GraphData
   /** The Obsidian-style control-panel state (filters, groups, display, forces). */
   settings: GraphSettings
   selectedId: string | null
   onSelectId: (id: string | null) => void
+  /** When set, the render graph is narrowed to exactly these concept ids — a real
+   *  sub-graph (the reading-view local graph for the open document), not the full
+   *  graph with outsiders hidden. Undefined = the whole workspace graph. */
+  restrictToIds?: ReadonlySet<string>
+  /** Render as the small reading-view thumbnail: keep the camera auto-fit to the
+   *  current content (which changes when the scope toggles local↔global). */
+  thumbnail?: boolean
   /** Topic the sidebar is hovering — light all its member concepts. */
   highlightClusterId: string | null
   /** Topic focused from search — like a node selection: lights its whole cluster
@@ -123,6 +133,10 @@ export function GraphCanvas({
   focusedClusterId: string | null
   /** Concept the sidebar is hovering — light it and its neighbours. */
   highlightConceptId: string | null
+  /** An explicit set of concepts to light (the rest dim). Used by the global
+   *  fullscreen graph to highlight the open document's concepts within the whole
+   *  workspace. When set, it overrides the cluster/concept highlight above. */
+  highlightConceptIds?: ReadonlySet<string>
   /** Open annotation markers per concept: green ring = highlight, amber = flag. */
   annotationsByConceptId?: Map<string, { highlight: boolean; flag: boolean }>
   /** Editor/owner — gates the editing items in the node right-click menu. */
@@ -208,11 +222,25 @@ export function GraphCanvas({
     return `${ns}|${es}`
   }, [data])
 
-  // Flat render graph: every concept and every edge, always. (No cluster
-  // super-nodes, no drill-in — Obsidian shows one global graph.) Nodes are seeded
-  // with their cached position so a topology-change re-heat resumes the layout.
+  // Stable signature of the active restriction (the open document's concept set).
+  // Folded into the graphData gate so switching documents rebuilds the local graph,
+  // while an unrelated same-shape refetch does not.
+  const restrictKey = useMemo(
+    () => (restrictToIds ? [...restrictToIds].sort().join(',') : ''),
+    [restrictToIds],
+  )
+
+  // Flat render graph. Workspace view: every concept and every edge (Obsidian shows
+  // one global graph — no super-nodes, no drill-in). Reading view: `restrictToIds`
+  // narrows it to the open document's concepts and the edges among them — a genuine
+  // sub-graph, NOT the full graph with outsiders hidden, so the simulation lays the
+  // document's concepts out as their own compact ball and the camera frames them to
+  // fill the pane (Obsidian's local-graph thumbnail). Nodes are seeded with their
+  // cached position so a topology-change re-heat resumes the layout.
   const graphData = useMemo(() => {
-    const nodes: FGNode[] = data.nodes.map((n) => {
+    const allow = restrictToIds
+    const src = allow ? data.nodes.filter((n) => allow.has(n.id)) : data.nodes
+    const nodes: FGNode[] = src.map((n) => {
       const copy: FGNode = { ...n }
       const p = posRef.current.get(n.id)
       if (p) {
@@ -226,9 +254,9 @@ export function GraphCanvas({
       .filter((l) => present.has(l.source) && present.has(l.target))
       .map((l) => ({ source: l.source, target: l.target, weight: l.weight }))
     return { nodes, links }
-    // topoSig (not data) gates rebuilds; data is read fresh in the closure when it does.
+    // topoSig + restrictKey gate rebuilds; data is read fresh in the closure when they change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topoSig])
+  }, [topoSig, restrictKey])
 
   // Degree (connection count) per node — Obsidian sizes nodes by it.
   const degreeOf = useMemo(() => {
@@ -304,7 +332,8 @@ export function GraphCanvas({
   // A node is visible unless Orphans is off and it has no connections, its topic is
   // hidden, or Local graph excludes it. Drives both nodeVisibility and the label
   // layer, so hidden nodes also lose their labels. Hiding (not removing) keeps the
-  // layout stable: filtering never re-heats the simulation.
+  // layout stable: filtering never re-heats the simulation. (The reading-view
+  // document scope is applied upstream in graphData as a real sub-graph, not here.)
   const nodeVisible = useCallback(
     (n: FGNode) => {
       if (!settings.filters.orphans && (degreeOf.get(n.id) ?? 0) === 0) return false
@@ -315,9 +344,13 @@ export function GraphCanvas({
     [settings.filters.orphans, settings.filters.hiddenTopics, degreeOf, localSet],
   )
 
-  // Highlight requested from the sidebar: hovering a topic lights all its concepts;
-  // hovering a concept lights it + neighbours. Empty → null (no dimming).
+  // Highlight requested from outside the canvas. An explicit id set wins (the global
+  // fullscreen graph passes the open document's concepts, to light them within the
+  // whole workspace). Else: hovering a topic lights all its concepts; hovering a
+  // concept lights it + neighbours. Empty → null (no dimming).
   const externalHighlight = useMemo(() => {
+    if (highlightConceptIds && highlightConceptIds.size)
+      return new Set(highlightConceptIds)
     // A hovered topic wins over a focused one (the user is actively pointing);
     // both light the whole cluster.
     const cluster = highlightClusterId ?? focusedClusterId
@@ -331,7 +364,7 @@ export function GraphCanvas({
     }
     const set = new Set(raw)
     return set.size ? set : null
-  }, [highlightClusterId, focusedClusterId, highlightConceptId, graphData, neighbors])
+  }, [highlightConceptIds, highlightClusterId, focusedClusterId, highlightConceptId, graphData, neighbors])
 
   // Resting style unless something is active. Priority: canvas hover, then sidebar
   // hover, then a persistent selection.
@@ -431,6 +464,22 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedClusterId, size.w, size.h])
 
+  // Thumbnail (reading-view): keep the graph framed to fill the small pane through
+  // every change. Toggling scope (local↔global) or switching documents rebuilds the
+  // node set and re-heats the sim — re-arm the one-shot fit so the settle
+  // (onEngineStop) frames the new set. A pane resize doesn't re-heat, so also fit
+  // directly once the layout already has positions. The full workspace view
+  // (thumbnail=false) keeps its passive camera, untouched.
+  useEffect(() => {
+    if (!thumbnail) return
+    pendingFitRef.current = true
+    const fg = fgRef.current
+    if (!fg || !graphData.nodes.some((n) => n.x != null)) return
+    const raf = requestAnimationFrame(() => fg.zoomToFit(500, 50))
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thumbnail, restrictKey, size.w, size.h])
+
   // Apply the Forces panel to the simulation and re-heat. Repel = charge strength,
   // Link distance/force = the link force, Center = a gentle pull toward the origin
   // (replaces the default centering force so the slider actually controls it).
@@ -524,28 +573,9 @@ export function GraphCanvas({
     }))
 
     const placed: Box[] = []
-    for (const { v, sp, screenR, show } of shown) {
+    for (const { v, sp, screenR, show, focus } of shown) {
       const hw = v.w / 2
       const hh = LABEL_H / 2
-
-      // Label-centre candidates around the dot, nearest-first: below, above, right,
-      // left, then the four diagonals. A resting label takes the first spot clear of
-      // both placed labels AND dots; if none, it still shows below. Focused labels
-      // always sit below.
-      const oy = screenR + 7 + hh
-      const ox = screenR + 7 + hw
-      const dy = screenR + 6 + hh
-      const dx = screenR + 6 + hw
-      const centers: [number, number][] = [
-        [sp.x, sp.y + oy],
-        [sp.x, sp.y - oy],
-        [sp.x + ox, sp.y],
-        [sp.x - ox, sp.y],
-        [sp.x + dx, sp.y + dy],
-        [sp.x - dx, sp.y + dy],
-        [sp.x + dx, sp.y - dy],
-        [sp.x - dx, sp.y - dy],
-      ]
       const boxAt = (lx: number, ly: number): Box => ({
         x0: lx - hw,
         y0: ly - hh,
@@ -553,20 +583,60 @@ export function GraphCanvas({
         y1: ly + hh,
       })
 
-      let [lx, ly] = centers[0]
-      // Skip the de-overlap search while dragging (sim is hot, fires every frame) —
-      // resting labels just drop below their dot until the drag ends.
-      if (!show && !dragging) {
-        const free = centers.find(([cx, cy]) => {
-          const b = boxAt(cx, cy)
-          return (
-            !placed.some((p) => overlaps(p, b)) &&
-            !dotBoxes.some((d) => overlaps(d, b, 1))
-          )
-        })
-        if (free) [lx, ly] = free
-        placed.push(boxAt(lx, ly))
+      // Label-centre candidates around the dot, nearest-first: below, above, right,
+      // left, then the diagonals — repeated at growing radii so a dense cluster can
+      // still find an open spot before giving up. centers[0] (just below) is the
+      // resting home each label falls back to.
+      const centers: [number, number][] = []
+      for (const ring of [0, 1, 2]) {
+        const ext = ring * (LABEL_H + 4)
+        const oy = screenR + 7 + hh + ext
+        const ox = screenR + 7 + hw + ext
+        centers.push(
+          [sp.x, sp.y + oy],
+          [sp.x, sp.y - oy],
+          [sp.x + ox, sp.y],
+          [sp.x - ox, sp.y],
+          [sp.x + ox, sp.y + oy],
+          [sp.x - ox, sp.y + oy],
+          [sp.x + ox, sp.y - oy],
+          [sp.x - ox, sp.y - oy],
+        )
       }
+
+      // While dragging the sim fires every frame — skip the O(n²) de-overlap search
+      // and drop every label below its dot until the drag ends.
+      if (dragging) {
+        const [bx, by] = centers[0]
+        v.el.style.display = 'block'
+        v.el.style.color = show ? c.labelHi : c.label
+        v.el.style.transform = `translate(${Math.round(bx)}px, ${Math.round(by)}px) translate(-50%, -50%)`
+        continue
+      }
+
+      // De-overlap EVERY shown label (focused, highlighted, and resting alike): take
+      // the first candidate clear of every already-placed label AND every dot. No
+      // open spot anywhere → hide the label rather than let two names overlap (the
+      // hard rule), except the selected/hovered node, which sorts first and always
+      // keeps its name below its dot.
+      const free = centers.find(([cx, cy]) => {
+        const b = boxAt(cx, cy)
+        return (
+          !placed.some((p) => overlaps(p, b)) &&
+          !dotBoxes.some((d) => overlaps(d, b, 1))
+        )
+      })
+      let lx: number
+      let ly: number
+      if (free) {
+        ;[lx, ly] = free
+      } else if (focus) {
+        ;[lx, ly] = centers[0]
+      } else {
+        v.el.style.display = 'none'
+        continue
+      }
+      placed.push(boxAt(lx, ly))
 
       v.el.style.display = 'block'
       v.el.style.color = show ? c.labelHi : c.label
@@ -722,6 +792,10 @@ export function GraphCanvas({
           linkVisibility={(l: FGLink) =>
             nodeVisible(l.source as FGNode) && nodeVisible(l.target as FGNode)
           }
+          // Hovering a node lights it + its neighbours; its name surfaces through the
+          // HTML label layer (the focus path in syncLabels). No richer peek card — it
+          // was wider than the canvas and overlapped the side panel; the name alone is
+          // the Obsidian hover.
           onNodeHover={(n: FGNode | null) => setHoverId(n ? n.id : null)}
           onNodeClick={(n: FGNode) => onSelectId(selectedId === n.id ? null : n.id)}
           onNodeRightClick={(n: FGNode, e: MouseEvent) => {

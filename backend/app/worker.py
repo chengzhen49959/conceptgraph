@@ -35,6 +35,7 @@ from app.services.concepts import add_aliases, add_mentions, resolve_concept, up
 from app.services.dedup_sweep import sweep_workspace
 from app.services.parse import parse_document
 from app.services.storage import get_object
+from app.services.thesis import grounds_in, thesis_anchor
 
 logger = logging.getLogger("ingest")
 
@@ -46,6 +47,15 @@ logger = logging.getLogger("ingest")
 # and weight-aware Leiden lets incidental weight-1 links fade while repeated
 # co-mentions pull concepts together. A knob: raise it to sparsify per document.
 _MIN_COOCCUR = 1
+
+# The hard ceiling on one ingest job (seconds). arq cancels the task at this bound,
+# so it is also the longest the merge lock can ever be held — the two MUST stay tied
+# (see _merge_lock): a lock timeout shorter than the job timeout lets the lock expire
+# while a long merge still holds it, which both crashes the release ("lock no longer
+# owned") AND lets a second job acquire it mid-merge and spawn duplicate nodes,
+# silently breaking the F4 no-duplicate guarantee. 30 min: the first document into an
+# empty workspace resolves every concept as new (the maximum merge-judge fan-out).
+_JOB_TIMEOUT = 1800
 
 
 async def _set_status(document_id: uuid.UUID, status: str, error: str | None = None) -> None:
@@ -79,8 +89,15 @@ async def _set_progress(document_id: uuid.UUID, current: int, total: int) -> Non
 def _merge_lock(redis, workspace_id: uuid.UUID):
     """The per-workspace lock serialising every duplicate-prone graph write — the
     ingest merge phase and the dedup sweep — so they can't interleave and spawn
-    duplicate nodes. Different workspaces still run in parallel."""
-    return redis.lock(f"merge-lock:{workspace_id}", timeout=600, blocking_timeout=180)
+    duplicate nodes. Different workspaces still run in parallel.
+
+    `timeout` is tied to the job timeout (`_JOB_TIMEOUT`), the longest the lock can
+    be held: a shorter lock TTL expires mid-merge under load, which crashes the
+    release and — worse — lets a second job acquire the lock and break F4. The job
+    cancels at the same bound, so the lock can never outlive its holder."""
+    return redis.lock(
+        f"merge-lock:{workspace_id}", timeout=_JOB_TIMEOUT, blocking_timeout=180
+    )
 
 
 async def ingest_document(ctx: dict, document_id: str) -> None:
@@ -99,6 +116,7 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
             workspace_id = doc.workspace_id
             s3_key = doc.s3_key
             source_type = doc.source_type
+            title = doc.title  # prepended to the thesis anchor (strongest subject signal)
 
         # Retry-safe: clear any chunks from a previous failed attempt (cascades
         # to their mentions). Concepts/edges from other documents are untouched.
@@ -176,13 +194,24 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         # incl. bibliography/related-work, yields nodes). This one document-level
         # call keeps only the concepts the document substantively develops; the rest
         # never enter the graph from this document. Lock-free, like the summary.
+        #
+        # Centrality is judged against the document's own framing (title + abstract +
+        # intro + conclusion), NOT the aggregate summary: the summary stitches every
+        # passage together, so it reflects incidental machinery (an optimizer, a
+        # normalization trick) as if it were the subject. The authors' framing names
+        # only the contribution. `thesis` is sliced positionally, not parsed. A
+        # concept named in that framing is grounded — a strong prior that it is core.
+        thesis = thesis_anchor(text, title)
         core = await select_core_concepts(
-            doc_summary,
+            thesis or doc_summary,  # framing is the arbiter; summary only if framing is empty
             [
                 CandidateConcept(
                     name=concept_first[k].name,
                     description=concept_first[k].description,
                     freq=freq[k],
+                    grounded=grounds_in(
+                        thesis, concept_first[k].name, *concept_first[k].aliases
+                    ),
                 )
                 for k in keys
             ],
@@ -398,12 +427,15 @@ class WorkerSettings:
     on_startup = on_startup
     on_shutdown = on_shutdown
     max_jobs = 4
-    # 30 min. The first document into an empty workspace resolves every concept as
-    # new (the maximum merge-judge fan-out); 600s wasn't enough even before counting
-    # network latency. The merge phase is now concurrent, but keep a wide ceiling so
-    # a big PDF can't be cancelled mid-flight (which is what froze docs at 'merging').
-    job_timeout = 1800
-    # A genuinely failing job shouldn't burn the full timeout arq's default 5 times;
-    # two attempts covers a transient blip without a half-hour retry storm.
-    max_tries = 2
+    # The single source for the job ceiling; the merge lock's TTL is tied to it
+    # (see _JOB_TIMEOUT / _merge_lock). 600s wasn't enough even before network
+    # latency — the first document into an empty workspace resolves every concept as
+    # new (the maximum merge-judge fan-out). The merge phase is now concurrent, but
+    # keep the wide ceiling so a big PDF can't be cancelled mid-flight.
+    job_timeout = _JOB_TIMEOUT
+    # A genuinely failing job shouldn't burn the full timeout arq's default 5 times,
+    # but a single batch-induced blip (a transient Aurora/DNS drop mid-write under a
+    # multi-PDF upload) shouldn't permanently fail an otherwise-fine document either.
+    # Three attempts rides out one bad network window without a retry storm.
+    max_tries = 3
     keep_result = 3600

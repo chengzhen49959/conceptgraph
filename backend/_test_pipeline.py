@@ -30,6 +30,7 @@ from app.ai import (
 from app.config import get_settings
 from app.services.chunk import chunk_text
 from app.services.parse import parse_document
+from app.services.thesis import grounds_in, thesis_anchor
 
 INPUT = Path(
     sys.argv[1]
@@ -84,11 +85,15 @@ async def main() -> None:
     keys = list(concept_text)
 
     # --- core gate (reduce-pass salience): keep only what the doc develops ---
+    # Anchored on the document's framing (title + abstract + intro + conclusion),
+    # not the aggregate summary — mirror of worker.py.
     doc_summary = await summarize_document([e.summary for e in extractions])
+    thesis = thesis_anchor(text, INPUT.stem)
     core = await select_core_concepts(
-        doc_summary,
+        thesis or doc_summary,
         [CandidateConcept(name=concept_first[k].name,
-                          description=concept_first[k].description, freq=freq[k])
+                          description=concept_first[k].description, freq=freq[k],
+                          grounded=grounds_in(thesis, concept_first[k].name, *concept_first[k].aliases))
          for k in keys],
     )
     print(f"[core-gate] {len(core)}/{len(keys)} concepts kept "
