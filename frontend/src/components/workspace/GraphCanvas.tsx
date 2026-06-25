@@ -305,11 +305,14 @@ export function GraphCanvas({
     return seen
   }, [settings.local.enabled, settings.local.depth, selectedId, neighbors])
 
-  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×).
+  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×). The
+  // base + coefficient are tuned tight on purpose — a high floor so orphans aren't
+  // specks and a gentle √ slope so a hub is only modestly bigger (radius spans ~1.7×
+  // across degree 0→25, ~2.8× in area), not the jarring 3×/9× the old 4 + 1.6·√d gave.
   const radiusOf = useCallback(
     (n: FGNode) => {
       const mult = Math.max(0.3, settings.display.nodeSize * 2)
-      return (4 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 1.6) * mult
+      return (6 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 0.8) * mult
     },
     [degreeOf, settings.display.nodeSize],
   )
@@ -574,6 +577,13 @@ export function GraphCanvas({
 
     const placed: Box[] = []
     for (const { v, sp, screenR, show, focus } of shown) {
+      // Insurance: a zero-width box never registers an overlap, so a mismeasured
+      // label would render on top of its neighbour. Re-measure once if it slipped
+      // through as 0 (forcing it visible first — offsetWidth is 0 when hidden).
+      if (v.w === 0) {
+        v.el.style.display = 'block'
+        v.w = v.el.offsetWidth
+      }
       const hw = v.w / 2
       const hh = LABEL_H / 2
       const boxAt = (lx: number, ly: number): Box => ({
@@ -670,7 +680,12 @@ export function GraphCanvas({
       v.n = n
       v.el.style.textShadow = c.labelShadow
       v.el.textContent = n.name
-      v.w = v.el.offsetWidth // measure once (one reflow); cached for de-overlap
+      // offsetWidth is 0 for a display:none element. A label hidden by an earlier
+      // de-overlap pass would re-measure as 0 here (this effect re-runs on a theme
+      // toggle), giving it a zero-width box that never registers an overlap — so it
+      // reappears on top of its neighbour. Force it visible before measuring.
+      if (v.el.style.display === 'none') v.el.style.display = 'block'
+      v.w = v.el.offsetWidth // measure (one reflow); cached for de-overlap
     }
     // Place immediately so a settled graph (e.g. after a theme toggle) shows labels
     // without waiting for the next pan/zoom to trigger a frame.
@@ -703,7 +718,8 @@ export function GraphCanvas({
         const lab = labelsRef.current.get(node.id)
         if (lab) {
           lab.el.textContent = f.name
-          lab.w = lab.el.offsetWidth // re-measure for de-overlap
+          if (lab.el.style.display === 'none') lab.el.style.display = 'block'
+          lab.w = lab.el.offsetWidth // re-measure for de-overlap (force visible: see build effect)
         }
         dirty = true
       }
