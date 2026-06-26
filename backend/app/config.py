@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Document-level reduce-pass that keeps only the concepts a document is about
     # (drops cited/background mentions). Needs document-wide judgement, so mini.
     select_core_model: str = "gpt-5.4-mini"
+    # RAG answer synthesis (F8): grounds a streamed, citation-backed answer in the
+    # retrieved passages. Quality + faithful citation matter (nano drops/garbles
+    # citations and over-summarises), so mini, not nano.
+    answer_model: str = "gpt-5.4-mini"
 
     # --- Pipeline tuning -------------------------------------------------------
     # NOTE: the embedding dimension is a DDL-fixed constant (the vector column

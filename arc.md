@@ -30,7 +30,7 @@ Division-of-labor principle: anything involving embedding / LLM / long-running c
 - Collaboration UI: project dashboard + workspace switcher, members / share panel, activity feed + annotation threads.
 - Async collaboration by **polling** (~2.5s refresh of graph + activity) — deliberately no WebSocket; a mentor's edits/annotations surface to the student on the next poll.
 - BFF layer: Route Handlers call the backend API; ISR caches graph data.
-- RAG streaming proxy: a Route Handler relays the backend SSE to the client.
+- RAG streaming proxy: the `app/api/ask/route.ts` Route Handler relays the backend `/api/ask` SSE to the client, attaching the Cognito bearer from the cookie **server-side** (the browser's `EventSource` can't carry the token, and a raw cross-origin fetch would re-expose it to client JS); `askStream` in `lib/api.ts` parses the frames.
 - Upload: `POST /api/documents` presigns an S3 URL + inserts the document `pending` (**no job yet**) → client PUTs the bytes directly to S3 → `POST /api/documents/{id}/ingest` enqueues the worker. Enqueue is split out of create so the worker never reads the S3 object before the browser's PUT lands it — enqueuing at create time raced the PUT and the worker's `get_object` 404'd with `NoSuchKey`. The web clip skips the split (it `put_object`s server-side first, so its bytes already exist — keeps the combined `persist_and_enqueue_document`). **Batch import is pure client orchestration** — a multi-select file input runs the per-file presign→PUT→ingest through a small bounded-concurrency pool (3 at a time), reusing the same per-document endpoints N times; no batch endpoint or schema is added. Each file is an independent ingest (a failure fails only itself), and the worker's per-workspace merge lock serialises the heavy graph-merge phase no matter how fast the client enqueues.
 
 **Browser extension — Graph Clipper (Chrome MV3, standalone)**
@@ -101,12 +101,15 @@ The following must **not** run on the frontend/client:
 3. Each passage hit carries the concept ids it mentions, so — though a passage is not itself a graph node — a click can route to one.
 4. `GET /api/search?q=&workspace_id=&limit=` returns `{concepts[], passages[]}`, each with a cosine-similarity score. The client pairs this vector recall with its own instant substring match over the already-loaded graph (cmdk): concept hits feed the existing select-node path; a passage hit selects its most-mentioned concept (ranked by the mention counts the client already holds).
 
-### 5.3 RAG Q&A (sync, backend)
-1. Embed the query (OpenAI).
-2. pgvector retrieve top-k chunks + related concepts (scoped to current workspace).
-3. Assemble context + concept ids.
-4. LLM generate: a citation-backed answer + echo cited_concept_ids, streamed out.
-5. Frontend lights up graph nodes by id in real time (no fuzzy text matching).
+### 5.3 RAG Q&A (sync, backend — built; `routers/ask.py` + `ai/answer.py`)
+`POST /api/ask` (SSE), workspace-scoped exactly like `/api/search`:
+1. Embed the question (OpenAI); an embed failure *before the stream opens* is a clean 503 (mirrors search — a half-open SSE can't carry an HTTP status).
+2. pgvector cosine ANN (HNSW) retrieve top-k=8 chunks scoped to the workspace, each carrying the concept ids it mentions + their names.
+3. Assemble a numbered context block of the **full** chunk texts (`[n]` per passage).
+4. LLM generate (`stream_answer` → `client.responses.create(model=settings.answer_model, stream=True)`, reasoning effort low, forwarding only `response.output_text.delta`): a citation-backed answer streamed out, the model citing passages as `[n]`; `answer_model = gpt-5.4-mini` (faithful citation > nano). An empty library/question is **defined away** by a fixed `NO_CONTEXT_REPLY` (no model call).
+5. On stream end, `cited_concept_ids` = the **union of the concept ids (via `ConceptMention`) of the passages the answer actually cited** (`parse_citations`: 1-based `[n]`/`[1][2]`/`[1,2]`, out-of-range dropped) — deterministic, **by id, never fuzzy text matching**; the frontend lights those graph nodes live.
+
+SSE event contract (one JSON object per frame): `context` `{passages[{n,chunk_id,document_id,document_title,snippet,concept_ids}], concepts[{id,name}]}` (evidence, once, before the answer) → `delta` `{text}` (repeated) → `done` `{cited_concept_ids}` → `error` `{detail}` on mid-stream failure. The Q&A surface is the **⌘K search palette's Ask mode** (`SearchPalette.tsx`), not a separate panel: typing shows an "Ask the library" affordance, and the answer streams inside the palette with inline `[n]` chips, a Sources list, and "Concepts cited" chips. The real-time highlight **reuses the existing `GraphCanvas.highlightConceptIds` prop** (lights a set, dims the rest — no new graph code): `WorkspaceView` holds `askConceptIds`, updated live as the answer streams (the client mirrors `parse_citations`), settles on the `done` set, persists after the palette closes (the lit graph is the reveal), and is cleared when the user selects a concept or focuses a topic.
 
 ### 5.4 Collaboration (async, student ↔ mentor)
 1. **Share:** an owner enables a reusable, role-scoped share link; a recipient opens `/invite/{token}`, logs in, and is bound to the workspace at that role (idempotent — re-accept never downgrades). Link-only; no email path.

@@ -1,6 +1,6 @@
 # PROJECT STATE (English)
 
-Updated: 2026-06-26
+Updated: 2026-06-27
 
 > Note: the product is a **student–researcher collaboration** tool — a student grows a research concept-graph from their library; a mentor reviews it asynchronously (highlight / flag / comment, with undo). `prd.md` and `arc.md` are reconciled to this (vision + data model + pipeline). Build milestones: **M1** workspaces+dashboard+share **[done]**, **M2** graph-edit+audit **[done]**, **M3** annotations+mentor-review **[done]**, **M4–M5** Slack two-way **[not started]**, **M6** digests+polish **[not started]**.
 
@@ -64,14 +64,22 @@ Updated: 2026-06-26
 - Search palette is now **hybrid** (`SearchPalette.tsx`): cmdk keeps the instant client-side substring match over the loaded graph; a debounced (250 ms, ≥2 chars) `/api/search` call layers in two `forceMount` groups — "Related concepts" (vector hits whose names never matched the typed text) and "Source passages". Concept hit → existing select-node path; passage hit → its most-mentioned concept (ranked by the mention counts the client already holds), or a disabled row if every concept it touched was gated out. `lib/api.ts` gains `search()` + types; `WorkspaceView` passes `workspaceId`.
 - Verified: backend imports + `/api/search` registered; all three SQL statements compile against the postgres dialect; frontend `tsc` clean + `eslint` clean on the changed files (the 4 remaining lint errors are pre-existing `set-state-in-effect` debt in `WorkspaceView`'s data-loading effects, untouched). Remaining: live e2e against a running stack with OpenAI reachable.
 
+**Done — RAG Q&A (F8, 2026-06-27):**
+- `POST /api/ask` (`routers/ask.py`, SSE streaming, registered in `main.py`): workspace-scoped exactly like `/api/search` — embeds the question (OpenAI), runs the **same** pgvector cosine ANN (HNSW) over the workspace's `chunks` (top-k=8), assembles a numbered context block of the **full** chunk texts, and streams a citation-backed answer the model cites as `[n]`. An embed failure *before the stream opens* is a clean **503** (mirrors search — a half-open SSE can't carry an HTTP status). `cited_concept_ids` = the **union of the concept ids (via `ConceptMention`) of the passages the answer actually cited** — deterministic, by id, never fuzzy text matching.
+- **SSE event contract:** `context` `{passages[{n,chunk_id,document_id,document_title,snippet,concept_ids}], concepts[{id,name}]}` (evidence, once, before the answer) → `delta` `{text}` (repeated) → `done` `{cited_concept_ids}` → `error` `{detail}` on mid-stream failure.
+- Generation module `ai/answer.py`: `stream_answer` (`client.responses.create(model=settings.answer_model, stream=True)`, reasoning effort low, forwards only `response.output_text.delta` events), `parse_citations` (1-based `[n]`, `[1][2]`, `[1,2]`; drops 0 / out-of-range), and `NO_CONTEXT_REPLY` — the empty-library / empty-question case is **defined away** with a fixed reply, no model round-trip. New config `answer_model = "gpt-5.4-mini"` (faithful citation > nano).
+- Frontend: a Next 16 Route Handler `app/api/ask/route.ts` relays the backend SSE to the browser, attaching the Cognito bearer from the cookie **server-side** (`EventSource` can't carry the token; a raw cross-origin fetch would re-expose it to client JS) — the "RAG streaming proxy" arc.md already anticipated. `askStream` SSE client in `lib/api.ts` parses the frames and fans each to its handler.
+- **UI placement decision — the Q&A surface is the ⌘K search palette's new "Ask" mode (`SearchPalette.tsx`), NOT a separate panel.** Typing a query shows an "Ask the library: '…'" affordance; selecting it (or Enter) streams the answer inside the palette with inline `[n]` citation chips, a **Sources** list, and **"Concepts cited"** chips.
+- **Real-time highlight reuses the existing `GraphCanvas.highlightConceptIds` prop** (lights a set, dims the rest — no new graph code): `WorkspaceView` holds `askConceptIds`, updated live as the answer streams (the client mirrors `parse_citations` in `citedConceptIds`), settles on the `done` set, **persists after the palette closes** (the lit graph is the reveal), and is **cleared when the user selects a concept or focuses a topic**.
+- Tests: `backend/tests/test_answer.py` (pure unit tests — `parse_citations` ranges/dedup + `NO_CONTEXT_REPLY`). Not yet visually verified live (no headless auth).
+
 **Not built yet (the remaining product gaps):**
-- **F8 RAG Q&A + real-time highlight** — no rag/ask router; no streamed cited answer; no concept-highlight-on-answer.
 - **F15 Slack integration** (M4–M5) — no Slack router/service; no OAuth, outbound events, or inbound slash/buttons.
 - Deploy chain (Render web + worker + Key Value; Vercel frontend) not validated this session.
 
 ## 2. Issues / Risks
 - **Merge/dedup is built and hardened** (the core differentiator): alias fast path + ANN + LLM judge + per-workspace lock + ON CONFLICT backstop. Block recall widened to favour the judge (`block_distance` 0.40→0.50, `block_top_k` 5→8) after true synonyms like "Attention"/"Attention mechanism" (sim ~0.59) fell just under the old 0.60 cutoff and never reached the judge. A same-form false-merge eval is still TODO before enabling any auto-merge band (skip-the-judge above a high similarity). 
-- **RAG (F8) is now the biggest missing piece** for the original PRD loop; semantic search (F7) shipped this session, and everything upstream (ingest → graph) and the collaboration layer are in place.
+- **The original single-user PRD loop is now complete** — RAG Q&A (F8) shipped 2026-06-27 alongside semantic search (F7), and everything upstream (ingest → graph) and the collaboration layer are in place. **F15 (Slack) is the sole remaining unbuilt feature.**
 - **Doc framing drift:** `prd.md`/`arc.md` predate the student–mentor collaboration pivot. Data model + pipeline are synced; the product vision in `prd.md` is not. Decide whether to formally re-vision the PRD.
 - **Cost / deploy:** Render workers need Starter (Free has no workers); Free web spins down — use Starter for any demo.
 - **Local run gotcha:** the `arq` worker is a *separate* process from the uvicorn API. If only the API runs, uploads enqueue but nothing drains the queue, so documents sit at `pending` forever (looks like a hang, not an error). Start it with `cd backend && uv run arq app.worker.WorkerSettings`. Images are now rejected at upload (415, no OCR).
@@ -79,11 +87,10 @@ Updated: 2026-06-26
 - **Frozen mid-pipeline status (root cause of the "stuck PDF" incident):** the worker advances `status` at phase *boundaries* — as of 2026-06-24 this includes `extracting` / `merging` / `clustering` (the finer-granularity fix below), so the long embed→extract→merge→cluster tail no longer masquerades as a frozen `embedding`. If the worker process is **hard-killed** mid-job (laptop sleep / closed terminal), the SQLAlchemy `except` never runs, status stays frozen at `embedding` (not `failed`), and nothing re-drives it. arq later *retries* the orphaned job, but a manual re-enqueue on top causes duplicate jobs to contend on the per-workspace `merge-lock` → repeated 600 s `job_timeout`s. Mitigations: (1) **client timeout fixed** — `AsyncOpenAI(timeout=45)` so a stalled call can't eat the whole 600 s budget (`app/ai/client.py`); **(3) finer status granularity — done (2026-06-24):** `worker.py` now sets `extracting` / `merging` / `clustering` across the former blind span, and the frontend documents list + status bar render the live stage label (`DOC_STATUS_LABEL` in `lib/api.ts`, shown in `NavSidebar`/`StatusBar`) instead of an opaque spinner. Still TODO: (2) a startup sweep that resets non-terminal-but-stale docs to `failed`/re-enqueue. **(4) clear *concepts* (not just chunks) so partial-run nodes don't accumulate — done (2026-06-26), see the orphan-concept reconciliation entry below.**
 
 ## 3. Next Steps (in order)
-1. **RAG Q&A (F8):** retrieve top-k chunks + related concepts → LLM generate a citation-backed answer streamed (SSE) → return `cited_concept_ids` → light up nodes on the graph in real time. (F7's `/api/search` already does the embed→ANN retrieval half; RAG reuses the same pgvector recall.)
-2. **Slack two-way integration (F15, M4–M5):** OAuth connect → outbound change/flag/digest posts → inbound slash-command/button actions (HMAC verify + encrypted bot-token storage).
-3. **Validate the deploy chain:** Render web `/api/health`, worker consuming the queue, Vercel frontend against the deployed Cognito pool.
-4. **Deliverables** (if still targeting the hackathon): demo video, architecture diagram, AWS-DB-usage screenshot, Vercel link + Team ID.
-5. **Live e2e for F7:** with the stack up + OpenAI reachable, run a real semantic query and confirm concept + passage hits land on the graph.
+1. **Slack two-way integration (F15, M4–M5):** OAuth connect → outbound change/flag/digest posts → inbound slash-command/button actions (HMAC verify + encrypted bot-token storage).
+2. **Validate the deploy chain:** Render web `/api/health`, worker consuming the queue, Vercel frontend against the deployed Cognito pool.
+3. **Deliverables** (if still targeting the hackathon): demo video, architecture diagram, AWS-DB-usage screenshot, Vercel link + Team ID.
+4. **Live e2e for F7 + F8:** with the stack up + OpenAI reachable, run a real semantic query and a library question, and confirm concept + passage hits and the cited-concept graph highlight land as expected.
 
 ## 4. Key Dates (from the original hackathon brief — verify still current)
 - Submission deadline: 2026-06-29 17:00 PT (2026-06-30 08:00 GMT+8).

@@ -58,6 +58,14 @@ export function WorkspaceView({
   const [searchOpen, setSearchOpen] = useState(false)
   const [activityUnread, setActivityUnread] = useState(0)
 
+  // Concepts a RAG answer relies on (F8). Set live as an answer streams in the
+  // search palette's Ask mode; lights these on the canvas and dims the rest, and
+  // persists after the palette closes so the lit graph is the reveal. Cleared when
+  // the user selects a concept or focuses a topic (normal interaction resumes).
+  const [askConceptIds, setAskConceptIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+
   // Sidebar→canvas highlight: hovering a topic row lights all its concepts,
   // hovering a concept row lights it + neighbours. At most one is set at a time.
   const [hoverTopicId, setHoverTopicId] = useState<string | null>(null)
@@ -69,10 +77,12 @@ export function WorkspaceView({
   const [focusedTopicId, setFocusedTopicId] = useState<string | null>(null)
   const selectConcept = useCallback((id: string | null) => {
     setFocusedTopicId(null)
+    setAskConceptIds(new Set()) // a manual pick supersedes the RAG highlight
     setSelectedId(id)
   }, [])
   const focusTopic = useCallback((id: string) => {
     setSelectedId(null)
+    setAskConceptIds(new Set())
     setFocusedTopicId(id)
   }, [])
 
@@ -417,6 +427,7 @@ export function WorkspaceView({
       highlightClusterId={hoverTopicId}
       focusedClusterId={focusedTopicId}
       highlightConceptId={hoverConceptId}
+      highlightConceptIds={askConceptIds.size ? askConceptIds : undefined}
       annotationsByConceptId={annotationsByConceptId}
       canEdit={canEdit}
       onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
@@ -515,6 +526,7 @@ export function WorkspaceView({
         workspaceId={workspaceId}
         onPick={selectConcept}
         onPickTopic={focusTopic}
+        onCited={setAskConceptIds}
       />
     </SidebarProvider>
   )

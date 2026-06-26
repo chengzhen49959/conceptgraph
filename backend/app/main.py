@@ -9,6 +9,7 @@ from app.db import get_engine
 from app.routers import (
     activity,
     annotations,
+    ask,
     clusters,
     concepts,
     documents,
@@ -81,3 +82,4 @@ app.include_router(activity.router)
 app.include_router(concepts.router)
 app.include_router(clusters.router)
 app.include_router(search.router)
+app.include_router(ask.router)

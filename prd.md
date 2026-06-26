@@ -52,9 +52,9 @@ Click a node to see name, aliases, description, source documents, related concep
 Retrieve concepts and document passages by meaning.
 **Done when:** a query returns relevance-ranked concept/passage results scoped to the current workspace; matching is driven by vector similarity, not pure keywords. *Shipped: `GET /api/search` embeds the query and runs pgvector cosine ANN over concepts + chunks; the search palette layers this vector recall over its instant client-side substring match — concept hits jump to the node, passage hits jump to their most-mentioned concept.*
 
-### F8 RAG Q&A + Real-Time Highlight **[planned]**
+### F8 RAG Q&A + Real-Time Highlight **[built]**
 Answer from library knowledge, with citations, lighting up the concepts the answer relies on.
-**Done when:** a question yields a streamed, citation-backed answer; as the answer streams, the concept nodes it relies on light up on the graph in real time (driven by backend-returned concept_id, not fuzzy text matching).
+**Done when:** a question yields a streamed, citation-backed answer; as the answer streams, the concept nodes it relies on light up on the graph in real time (driven by backend-returned concept_id, not fuzzy text matching). *Shipped: `POST /api/ask` (SSE) embeds the question and runs the same pgvector cosine ANN over the workspace's `chunks` (top-k 8) as `/api/search`, assembles a numbered context block, and streams a citation-backed answer that cites passages as `[n]`; `cited_concept_ids` is the union of the cited passages' concept ids (deterministic, by id — never fuzzy text). The Q&A surface is the ⌘K palette's **Ask** mode (not a separate panel): typing shows an "Ask the library" affordance, and the streamed answer renders inline `[n]` chips, a Sources list, and "Concepts cited" chips while WorkspaceView lights those concepts on the graph live via the existing `GraphCanvas.highlightConceptIds` prop, settling on the `done` set.*
 
 ### F9 Automatic Clustering (topic hierarchy) **[built]**
 Run community detection over the concept graph to form named topic clusters, organized into a topic → sub-topic hierarchy. The graph is densified with **co-occurrence edges** (concept pairs sharing a chunk) so communities form on real co-mention rather than only the sparse set of explicitly-extracted relations.
@@ -94,7 +94,7 @@ A standalone Chrome (MV3) extension that clips the page a user is reading into a
 Reach a document's *original source* — what the user actually provided, not a re-render — **directly from its sidebar row**. Clicking a row **slides it left (WeChat-style) to reveal inline actions** — **Open** (a file upload inline, a web clip its origin page) and, for an uploaded file, **Download** (save to local) — instead of firing one action blindly, so opening vs. saving is an explicit, visible choice. There is no in-app reader and no main-area view — the canvas stays on the graph, and the user reaches the real source from one row. *(This replaced an Obsidian-style reading pane that rendered parsed prose with inline concept chips, a per-document local graph, a heading outline and bidirectional graph↔text scroll-sync; that surface was removed as excess complexity in favour of just opening the source file.)*
 **Done when:** clicking a document row in the sidebar **swipes it open** to reveal **Open** + (for uploads) **Download**; **Open** shows an **uploaded file** (no `source_url`) inline in a new tab — no orphaned blank tab — and a **web clip** (has `source_url`) at its origin page; **Download** saves the original to local (forced via `Content-Disposition: attachment`, non-ASCII/CJK filenames preserved) with a toast so the save is acknowledged; both file URLs are short-lived **presigned S3 URLs fetched on click** (never stale); the concept panel's Sources list opens a document's source the same way; the graph canvas is never replaced.
 
-> Scope note: the single-user core loop is F1–F10 (plus F16, the web-clip ingestion client); the collaboration layer is F11–F15. F8 (RAG Q&A) and F15 (Slack) are the remaining unbuilt pieces; F7 (semantic search) is now built.
+> Scope note: the single-user core loop is F1–F10 (plus F16, the web-clip ingestion client); the collaboration layer is F11–F15. F15 (Slack) is the sole remaining unbuilt piece; F7 (semantic search) and F8 (RAG Q&A) are now built.
 
 ## 6. User Flows
 1. **Onboarding:** sign up/in → land in personal private workspace → see the project dashboard.
@@ -114,7 +114,7 @@ Reach a document's *original source* — what the user actually provided, not a 
 - Document list page (with per-document summary)
 - Concept detail drawer (name/aliases/description/provenance/related concepts)
 - Semantic search box (within the main view)
-- Q&A panel (ask + streamed answer + citations, synced with graph highlight)
+- Q&A — the ⌘K search palette's **Ask** mode (ask + streamed cited answer with inline `[n]` citations + Sources list + concepts-cited chips, synced with graph highlight), not a separate panel
 - **Members / share panel** (share-link toggle + role + Copy link)
 - **Activity feed** (recent changes + unread badge; annotation threads)
 - **Browser-extension clip panel** (Markdown preview + whole-page/selection toggle + title edit + workspace picker with inline create; long-page warning + "already clipped" state) — separate Chrome extension, not a web page

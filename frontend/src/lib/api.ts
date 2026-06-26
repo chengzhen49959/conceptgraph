@@ -254,6 +254,109 @@ export function search(q: string, workspaceId?: string, limit = 10) {
   return apiClient<SearchResults>(`/api/search?${params.toString()}`)
 }
 
+// --- RAG Q&A (F8) ----------------------------------------------------------
+
+/** One retrieved passage backing an answer. `n` is its 1-based citation index —
+ *  the answer cites it as `[n]`. `concept_ids` are the graph concepts it mentions,
+ *  the ids that light up when this passage is cited. */
+export type AskPassage = {
+  n: number
+  chunk_id: string
+  document_id: string
+  document_title: string
+  snippet: string
+  concept_ids: string[]
+}
+
+/** Evidence + an id→name map for the concepts the answer may cite, sent once
+ *  before the answer streams. */
+export type AskContext = {
+  passages: AskPassage[]
+  concepts: { id: string; name: string }[]
+}
+
+/** Streaming callbacks. `onDone` carries the authoritative highlight set — the
+ *  union of concept ids from the passages the answer actually cited. */
+export type AskHandlers = {
+  onContext?: (ctx: AskContext) => void
+  onDelta?: (text: string) => void
+  onDone?: (citedConceptIds: string[]) => void
+  onError?: (detail: string) => void
+}
+
+/** Ask the library a question and stream the cited answer. Posts to the same-origin
+ *  `/api/ask` Route Handler (which attaches the Cognito bearer server-side and relays
+ *  the backend SSE), then parses the event stream and fans each frame out to the
+ *  handlers. Resolves when the stream ends; rejects on a pre-stream error (the route
+ *  handler returns JSON `{detail}` for 401/403/422/503). Pass `signal` to abort an
+ *  in-flight answer (e.g. the user asks again or closes the palette). */
+export async function askStream(
+  q: string,
+  workspaceId: string | undefined,
+  handlers: AskHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q, workspace_id: workspaceId }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    const raw = await res.text()
+    let message = raw
+    try {
+      const detail = JSON.parse(raw)?.detail
+      if (typeof detail === 'string') message = detail
+    } catch {
+      // not JSON — keep the raw text
+    }
+    throw new Error(message || `ask ${res.status}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  // SSE frames are separated by a blank line; each frame has an `event:` line and
+  // one or more `data:` lines. Our payloads are single-line JSON, but join multi-
+  // line data defensively.
+  const dispatch = (frame: string) => {
+    let event = 'message'
+    const data: string[] = []
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+    }
+    if (!data.length) return
+    let payload: unknown
+    try {
+      payload = JSON.parse(data.join('\n'))
+    } catch {
+      return // a malformed frame is dropped, not fatal
+    }
+    const p = payload as Record<string, unknown>
+    if (event === 'context') handlers.onContext?.(payload as AskContext)
+    else if (event === 'delta') handlers.onDelta?.(String(p.text ?? ''))
+    else if (event === 'done')
+      handlers.onDone?.((p.cited_concept_ids as string[]) ?? [])
+    else if (event === 'error') handlers.onError?.(String(p.detail ?? 'error'))
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      if (frame.trim()) dispatch(frame)
+    }
+  }
+  // Flush a trailing frame with no terminating blank line (stream closed cleanly).
+  if (buf.trim()) dispatch(buf)
+}
+
 // --- Deletes ---------------------------------------------------------------
 
 /** Counts returned by a batch delete (fields present depend on the endpoint). */
