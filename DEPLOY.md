@@ -9,7 +9,7 @@ Aurora Postgres + Redis + S3 + OpenAI + Cognito.
 |-------|----------|--------|
 | Frontend (Vercel) | https://concept-graph.vercel.app | ✅ live |
 | Backend web (Render) | https://concept-graph-api.onrender.com — `srv-d8vd33r7uimc73ani0p0` | ✅ live (free plan) |
-| Backend worker (Render) | arq | ❌ not created — needs Render billing (no free worker tier) |
+| Backend worker (Render) | arq — `srv-d8vdahn7f7vs73bbhg00` (starter, virginia) | ✅ live (Redis connected) |
 | Redis (Render Key Value) | `red-d8vd21urnols738777f0` (virginia, free) | ✅ live |
 | S3 CORS for the Vercel origin | bucket `hackathon-concept-graph-435756741973` | ✅ applied |
 | Aurora SG ingress | `sg-0715421ffa5971eed` ← `74.220.49.18/32` (Render egress) | ✅ whitelisted |
