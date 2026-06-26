@@ -100,11 +100,36 @@ def _merge_lock(redis, workspace_id: uuid.UUID):
     )
 
 
+def _ingest_lock(redis, document_id: uuid.UUID):
+    """Per-document mutual exclusion: at most one ingest job runs for a document at
+    a time. Acquired non-blocking at the top of the job and skipped on miss, because
+    a *duplicate* job for the same doc is exactly what we want to drop, not queue.
+
+    Without it, two jobs for one document race the lock-free chunk phase: the
+    parse/chunk/embed section (deliberately outside the per-workspace `_merge_lock`,
+    for cross-document parallelism) starts by DELETEing the doc's chunks and
+    re-inserting fresh rows. A second job's delete wipes the first's just-inserted
+    chunks, so the first's `concept_mentions` insert then violates the chunk FK and
+    the whole job fails. Duplicates arise from arq retrying a timed-out job while a
+    fresh enqueue for the same doc is already in flight, or a manual re-ingest fired
+    before a prior run finished. The TTL is tied to `_JOB_TIMEOUT` (like `_merge_lock`)
+    so a hard-killed holder's lock can't outlive the job; `on_startup` is the backstop."""
+    return redis.lock(f"ingest-lock:{document_id}", timeout=_JOB_TIMEOUT)
+
+
 async def ingest_document(ctx: dict, document_id: str) -> None:
     """Process one uploaded document end to end."""
     doc_id = uuid.UUID(document_id)
     sessionmaker = _sessionmaker()
     redis = ctx["redis"]
+
+    # Skip if another job is already ingesting this exact document — a duplicate
+    # would clobber its chunks mid-pipeline (see _ingest_lock). Non-blocking: we
+    # drop the duplicate, not wait for the holder to finish and re-run redundantly.
+    lock = _ingest_lock(redis, doc_id)
+    if not await lock.acquire(blocking=False):
+        logger.info("document %s already being ingested; skipping duplicate job", doc_id)
+        return
 
     try:
         # Load the document's processing inputs.
@@ -352,6 +377,13 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         except Exception:  # pragma: no cover
             logger.exception("could not record failure status for %s", doc_id)
         raise
+    finally:
+        # Release the per-document lock on every exit (success, early return, error,
+        # or cancel). Suppressed because a timeout-expired lock raises on release —
+        # the TTL is tied to the job timeout so that can't happen mid-job, but a hard
+        # kill could, and the release must never mask the original failure.
+        with contextlib.suppress(Exception):
+            await lock.release()
 
 
 async def dedup_sweep_workspace(
