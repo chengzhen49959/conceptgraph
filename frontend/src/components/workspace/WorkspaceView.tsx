@@ -224,22 +224,52 @@ export function WorkspaceView({
     }
   }, [readingDocId])
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  // Upload one or many files. Each file is its own independent ingest: presign →
+  // PUT to S3 → its `ingest_document` job (already enqueued by createDocument). A
+  // few run at a time — the slow part is the S3 PUT, and the worker's per-workspace
+  // merge lock serialises the heavy graph-merge phase no matter how fast we enqueue,
+  // so a bad file only fails itself and never sinks the rest of the batch.
+  const handleFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
       setBusy(true)
+      let ok = 0
+      const failures: string[] = []
+      const uploadOne = async (file: File) => {
+        try {
+          const contentType = contentTypeFor(file.name)
+          const { upload_url } = await createDocument({
+            filename: file.name,
+            content_type: contentType,
+            title: file.name,
+            workspace_id: workspaceId,
+          })
+          await uploadToS3(upload_url, file, contentType)
+          ok += 1
+        } catch (e) {
+          failures.push(`${file.name}: ${(e as Error).message}`)
+        }
+      }
       try {
-        const contentType = contentTypeFor(file.name)
-        const { upload_url } = await createDocument({
-          filename: file.name,
-          content_type: contentType,
-          title: file.name,
-          workspace_id: workspaceId,
-        })
-        await uploadToS3(upload_url, file, contentType)
-        await refreshDocs() // the new pending doc starts the polling loop
-        toast.success(`Uploading "${file.name}" — building the graph…`)
-      } catch (e) {
-        toast.error((e as Error).message)
+        // Bounded-concurrency worker pool: POOL tasks each drain a shared queue.
+        const queue = [...files]
+        const POOL = 3
+        await Promise.all(
+          Array.from({ length: Math.min(POOL, queue.length) }, async () => {
+            for (let file = queue.shift(); file; file = queue.shift()) {
+              await uploadOne(file)
+            }
+          }),
+        )
+        await refreshDocs() // the new pending docs start the polling loop
+        if (ok > 0) {
+          toast.success(
+            files.length === 1
+              ? `Uploading "${files[0].name}" — building the graph…`
+              : `Queued ${ok} document${ok > 1 ? 's' : ''} — building the graph…`,
+          )
+        }
+        for (const msg of failures) toast.error(msg)
       } finally {
         setBusy(false)
       }
@@ -457,7 +487,7 @@ export function WorkspaceView({
       <NavSidebar
         documents={docs}
         graph={graph}
-        onPickFile={handleFile}
+        onPickFiles={handleFiles}
         busy={busy}
         loading={loadingDocs}
         workspaceName={workspaceName}

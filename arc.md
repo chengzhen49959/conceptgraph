@@ -31,7 +31,7 @@ Division-of-labor principle: anything involving embedding / LLM / long-running c
 - Async collaboration by **polling** (~2.5s refresh of graph + activity) — deliberately no WebSocket; a mentor's edits/annotations surface to the student on the next poll.
 - BFF layer: Route Handlers call the backend API; ISR caches graph data.
 - RAG streaming proxy: a Route Handler relays the backend SSE to the client.
-- Upload: request an S3 presigned URL from the backend; client uploads directly to S3.
+- Upload: request an S3 presigned URL from the backend; client uploads directly to S3. **Batch import is pure client orchestration** — a multi-select file input runs the per-file presign→PUT→enqueue through a small bounded-concurrency pool (3 at a time), reusing the unchanged single-document endpoint N times; no batch endpoint or schema is added. Each file is an independent ingest (a failure fails only itself), and the worker's per-workspace merge lock serialises the heavy graph-merge phase no matter how fast the client enqueues.
 
 **Browser extension — Graph Clipper (Chrome MV3, standalone)**
 - A separate client shipped to the Chrome Web Store (not deployed on Vercel/Render, no app-core logic). Lets a user clip the page they're reading straight into a workspace graph.

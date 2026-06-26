@@ -220,7 +220,7 @@ function SelectionToolbar({
 export function NavSidebar({
   documents,
   graph,
-  onPickFile,
+  onPickFiles,
   busy,
   loading,
   workspaceName,
@@ -241,7 +241,7 @@ export function NavSidebar({
 }: {
   documents: DocumentOut[]
   graph: GraphData
-  onPickFile: (file: File) => void
+  onPickFiles: (files: File[]) => void
   busy: boolean
   loading: boolean
   workspaceName: string
@@ -512,8 +512,19 @@ export function NavSidebar({
                           </span>
                         )}
                         {doc.status === 'failed' && (
-                          <span className="truncate text-[10px] leading-tight text-destructive">
-                            {doc.error ?? 'Failed'}
+                          <span className="flex min-w-0 flex-col text-[10px] leading-tight text-destructive">
+                            <span
+                              className="truncate"
+                              title={doc.error ?? 'Import failed'}
+                            >
+                              {doc.error ?? 'Import failed'}
+                            </span>
+                            {/* Ingest can't be resumed in place (the original file
+                                isn't kept), so the only recovery is delete + re-upload —
+                                spell it out and offer the one-click delete on the right. */}
+                            <span className="font-medium">
+                              Delete &amp; re-upload to retry
+                            </span>
                           </span>
                         )}
                       </span>
@@ -530,6 +541,23 @@ export function NavSidebar({
                         selectedDocs.has(doc.id) && 'opacity-100',
                       )}
                     />
+                    {/* One-click delete for a failed import — a sibling button (a
+                        <button> can't nest inside SidebarMenuButton's button). Reveals
+                        on row hover; clears the dead row so the user can re-upload. */}
+                    {doc.status === 'failed' && (
+                      <button
+                        type="button"
+                        title="Delete this document — then re-upload to try again"
+                        aria-label={`Delete ${doc.title} and re-upload`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void onDeleteDocuments([doc.id])
+                        }}
+                        className="absolute top-1.5 right-1 z-10 flex aspect-square w-5 items-center justify-center rounded-md text-destructive opacity-0 transition-opacity hover:bg-destructive/10 group-hover/row:opacity-100 group-data-[collapsible=icon]:hidden"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -741,11 +769,12 @@ export function NavSidebar({
         ref={fileRef}
         type="file"
         accept={ACCEPT}
+        multiple
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) onPickFile(file)
-          e.target.value = '' // allow re-selecting the same file
+          const files = Array.from(e.target.files ?? [])
+          if (files.length) onPickFiles(files)
+          e.target.value = '' // allow re-selecting the same file(s)
         }}
       />
 
