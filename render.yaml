@@ -1,0 +1,87 @@
+# Render Blueprint — backend (FastAPI web + arq worker) plus a managed Key Value
+# (Redis) store. The frontend is deployed separately on Vercel.
+#
+# Two processes share ONE codebase and ONE secret group:
+#   - web    : uvicorn, serves the API, runs `alembic upgrade head` pre-deploy.
+#   - worker : arq, drains the ingestion queue (parse→embed→extract→cluster).
+# Both reach the same Aurora DB and the same Redis. REDIS_URL is wired
+# automatically from the Key Value store; every other secret is set once in the
+# `backend-secrets` group (filled in the Render dashboard — see DEPLOY.md).
+#
+# Note: older Render accounts label `keyvalue` as "Redis"; the blueprint type is
+# `keyvalue`. `ipAllowList: []` keeps it reachable only from Render services in
+# this region (no public internet exposure).
+
+services:
+  - type: web
+    name: concept-graph-api
+    runtime: python
+    rootDir: backend
+    plan: starter
+    # uv reads .python-version + uv.lock; --no-dev drops the pytest group.
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    # Migrations run once per deploy, BEFORE the new instance takes traffic, so a
+    # bad migration fails the deploy instead of a half-migrated live service.
+    preDeployCommand: uv run alembic upgrade head
+    startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: concept-graph-redis
+          property: connectionString
+      - fromGroup: backend-secrets
+
+  - type: worker
+    name: concept-graph-worker
+    runtime: python
+    rootDir: backend
+    plan: starter
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run arq app.worker.WorkerSettings
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: concept-graph-redis
+          property: connectionString
+      - fromGroup: backend-secrets
+
+  - type: keyvalue
+    name: concept-graph-redis
+    plan: free
+    ipAllowList: []  # internal-only (Render services in this region)
+
+envVarGroups:
+  - name: backend-secrets
+    envVars:
+      # Aurora — async SQLAlchemy URL (postgresql+asyncpg://...). The Aurora
+      # security group must allow Render's static outbound IPs on 5432.
+      - key: DATABASE_URL
+        sync: false
+      # Cognito — JWT verification (no AWS secret needed for this).
+      - key: COGNITO_REGION
+        value: us-east-1
+      - key: COGNITO_USER_POOL_ID
+        sync: false
+      - key: COGNITO_APP_CLIENT_ID
+        sync: false
+      # CORS — the Vercel frontend origin (set after the first Vercel deploy).
+      - key: FRONTEND_ORIGIN
+        sync: false
+      # Chrome clipper extension origin(s), comma-separated. Optional.
+      - key: EXTENSION_ORIGINS
+        sync: false
+      # OpenAI — embeddings + extraction + merge/label.
+      - key: OPENAI_API_KEY
+        sync: false
+      # S3 — raw uploaded documents (presigned PUT from the browser).
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
