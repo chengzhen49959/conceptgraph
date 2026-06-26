@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { X } from 'lucide-react'
 import {
   type Annotation,
-  type DocumentContent,
   type DocumentOut,
   type GraphData,
   type WorkspaceCard,
@@ -16,7 +14,6 @@ import {
   deleteConcept,
   deleteDocuments,
   getActivityUnread,
-  getDocumentContent,
   getGraph,
   isProcessing,
   listAnnotations,
@@ -25,13 +22,12 @@ import {
   uploadToS3,
 } from '@/lib/api'
 import { useGraphSettings } from '@/lib/graph-settings'
+import { openDocumentSource } from '@/lib/document-source'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppTopbar } from './AppTopbar'
 import { NavSidebar } from './NavSidebar'
 import { GraphCanvas } from './GraphCanvas'
 import { GraphEditToolbar } from './GraphEditToolbar'
-import { DocumentReader } from './DocumentReader'
-import { LocalGraphPanel } from './LocalGraphPanel'
 import { ConceptPanel } from './ConceptDetail'
 import { TopicPanel } from './TopicDetail'
 import { SearchPalette } from './SearchPalette'
@@ -79,33 +75,18 @@ export function WorkspaceView({
     setFocusedTopicId(id)
   }, [])
 
-  // Reading view: when a document is open, the main area shows its source text and
-  // the full graph shrinks to a corner local graph. The payload (parsed Markdown +
-  // the doc's concepts) is fetched on demand. Selecting a concept from either the
-  // text or the mini graph restores the full graph with that concept selected.
-  const [readingDocId, setReadingDocId] = useState<string | null>(null)
-  const [readingContent, setReadingContent] = useState<DocumentContent | null>(null)
-  const [readingLoading, setReadingLoading] = useState(false)
-  // The concept nearest the top of the reader as you scroll — highlights its node
-  // in the co-present graph (text→graph sync). Null when nothing's in view.
-  const [readingConceptId, setReadingConceptId] = useState<string | null>(null)
-  // The reading-view local-graph panel can expand to a fullscreen graph (Obsidian's
-  // two icons): 'local' = just this document's concepts, 'global' = the whole
-  // workspace. null = collapsed to the rail thumbnail.
-  const [expandedGraphScope, setExpandedGraphScope] = useState<'local' | 'global' | null>(null)
-  const closeReader = useCallback(() => {
-    setReadingDocId(null)
-    setExpandedGraphScope(null)
-  }, [])
-  // Selecting a concept from the reader (chip / local graph) no longer closes the
-  // reader — text and graph stay co-present, and the selection scrolls the prose
-  // to that concept (DocumentReader's scrollToConceptId).
-  const openConceptFromReader = selectConcept
-  // Open a source document in the reader without disturbing the selection — the
-  // reader scrolls to the selected concept (what the Sources panel is showing).
-  const openInReader = useCallback((documentId: string) => {
-    setReadingDocId(documentId)
-  }, [])
+  // Source view: opening a document from the sidebar swaps the canvas for the
+  // user's original source — a file upload links to its file (open / download), a
+  // web clip to its origin page — opened directly, no in-app view.
+  // Open a document's source from the concept panel's Sources list (looks the doc
+  // up so the panel only needs to pass an id).
+  const openSource = useCallback(
+    (documentId: string) => {
+      const doc = docs.find((d) => d.id === documentId)
+      if (doc) void openDocumentSource(doc)
+    },
+    [docs],
+  )
 
   // Graph control-panel state (filters / display / forces / local graph),
   // persisted to localStorage per workspace. NavSidebar owns the whole control
@@ -204,25 +185,6 @@ export function WorkspaceView({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  // Load the reading payload when a document is opened; clear it when closed. A
-  // failed fetch leaves content null, so the reader shows its unavailable state.
-  useEffect(() => {
-    if (!readingDocId) {
-      setReadingContent(null)
-      return
-    }
-    let alive = true
-    setReadingLoading(true)
-    setReadingContent(null)
-    getDocumentContent(readingDocId)
-      .then((c) => alive && setReadingContent(c))
-      .catch((e) => alive && toast.error((e as Error).message))
-      .finally(() => alive && setReadingLoading(false))
-    return () => {
-      alive = false
-    }
-  }, [readingDocId])
 
   // Upload one or many files. Each file is its own independent ingest: presign →
   // PUT to S3 → its `ingest_document` job (already enqueued by createDocument). A
@@ -390,17 +352,6 @@ export function WorkspaceView({
 
   // The open document, derived — so deleting it out from under the reader closes
   // the view for free (same pattern as focusedCluster), no reconciliation effect.
-  const readingDoc = useMemo(
-    () => docs.find((d) => d.id === readingDocId) ?? null,
-    [docs, readingDocId],
-  )
-
-  // The open document's concepts — the node set for the corner local graph.
-  const readingConceptIds = useMemo(
-    () => new Set(readingContent?.concepts.map((c) => c.id) ?? []),
-    [readingContent],
-  )
-
   // The active workspace's card (for role-gated chrome). Member management is
   // owner-only and only meaningful on a shared project, not the personal one.
   const current = useMemo(
@@ -453,16 +404,8 @@ export function WorkspaceView({
     return () => clearInterval(t)
   }, [isShared, refreshGraph, refreshAnnotations, refreshActivityUnread])
 
-  // The graph canvas, shared across the full workspace view, the reading-view
-  // thumbnail, and the fullscreen overlay. `restrict` scopes it to one document's
-  // concepts (the local graph); undefined = the whole workspace. `opts.thumbnail`
-  // switches on the small-pane behaviour (auto-fit, no hover card); `opts.highlight`
-  // lights an explicit concept set (the global overlay lights the open document's
-  // concepts within the whole graph). Kept as one element so its wiring never drifts.
-  const graphView = (
-    restrict?: ReadonlySet<string>,
-    opts?: { thumbnail?: boolean; highlight?: ReadonlySet<string> },
-  ) => (
+  // The workspace graph canvas. Kept as one factory so its wiring lives in one place.
+  const graphView = () => (
     <GraphCanvas
       data={graph}
       settings={settings}
@@ -470,15 +413,12 @@ export function WorkspaceView({
       onSelectId={selectConcept}
       highlightClusterId={hoverTopicId}
       focusedClusterId={focusedTopicId}
-      highlightConceptId={hoverConceptId ?? (readingDoc ? readingConceptId : null)}
-      highlightConceptIds={opts?.highlight}
+      highlightConceptId={hoverConceptId}
       annotationsByConceptId={annotationsByConceptId}
       canEdit={canEdit}
       onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
       onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
       onDeleteConcept={handleDeleteConcept}
-      restrictToIds={restrict}
-      thumbnail={opts?.thumbnail ?? false}
     />
   )
 
@@ -501,8 +441,6 @@ export function WorkspaceView({
         onDeleteDocuments={handleDeleteDocuments}
         onDeleteClusters={handleDeleteClusters}
         onDeleteConcepts={handleDeleteConcepts}
-        onSelectDocument={setReadingDocId}
-        activeDocId={readingDocId}
         settings={settings}
         onChange={patchSettings}
       />
@@ -519,71 +457,16 @@ export function WorkspaceView({
         />
 
         <div className="relative min-h-0 min-w-0 flex-1">
-          {readingDoc ? (
-            // Co-present reading workspace (Obsidian's layout): the source text fills
-            // the width, with a right rail holding this document's local-graph
-            // thumbnail above the heading outline. A web clip renders as an embedded
-            // page that can't carry inline concept links, so it gets no graph — just
-            // the reader (DocumentReader drops the rail when localGraph is undefined).
-            <DocumentReader
-              content={readingContent}
-              loading={readingLoading}
-              onClose={closeReader}
-              onSelectConcept={openConceptFromReader}
-              scrollToConceptId={selectedId}
-              onActiveConceptChange={setReadingConceptId}
-              localGraph={
-                !readingContent?.source_url && readingConceptIds.size > 0 ? (
-                  <LocalGraphPanel
-                    conceptIds={readingConceptIds}
-                    renderGraph={(restrict) => graphView(restrict, { thumbnail: true })}
-                    onExpand={setExpandedGraphScope}
-                  />
-                ) : undefined
-              }
+          {canEdit && (
+            <GraphEditToolbar
+              workspaceId={workspaceId}
+              onCreated={(id) => {
+                refreshGraph()
+                selectConcept(id)
+              }}
             />
-          ) : (
-            <>
-              {canEdit && (
-                <GraphEditToolbar
-                  workspaceId={workspaceId}
-                  onCreated={(id) => {
-                    refreshGraph()
-                    selectConcept(id)
-                  }}
-                />
-              )}
-              {graphView()}
-            </>
           )}
-
-          {expandedGraphScope && readingDoc && (
-            // Fullscreen graph over the reading area (Obsidian's expanded 关系图谱):
-            // 'local' frames just this document's concepts, 'global' the whole
-            // workspace. absolute inset-0 covers the reader but leaves the topbar,
-            // status bar, and side panels in place.
-            <div className="absolute inset-0 z-30 flex flex-col bg-background">
-              <div className="flex items-center justify-between border-b px-3 py-1.5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {expandedGraphScope === 'local' ? 'Local graph' : 'Full graph'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setExpandedGraphScope(null)}
-                  title="Close"
-                  aria-label="Close graph"
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-              <div className="relative min-h-0 flex-1">
-                {expandedGraphScope === 'local'
-                  ? graphView(readingConceptIds)
-                  : graphView(undefined, { highlight: readingConceptIds })}
-              </div>
-            </div>
-          )}
+          {graphView()}
         </div>
 
         <StatusBar graph={graph} documents={docs} />
@@ -605,7 +488,7 @@ export function WorkspaceView({
             onNavigate={selectConcept}
             onMutated={refreshGraph}
             onAnnotationsChanged={refreshAnnotations}
-            onOpenInReader={openInReader}
+            onOpenSource={openSource}
           />
         </aside>
       )}

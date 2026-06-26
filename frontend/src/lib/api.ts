@@ -78,6 +78,9 @@ export type DocumentOut = {
   source_type: string
   status: DocumentStatus
   error: string | null
+  // The web origin a clipped document came from; null for a file upload. The
+  // source view branches on it: a clip links to this page, an upload to its file.
+  source_url?: string | null
   // Merge-phase progress (concepts resolved / total). Both null/absent outside the
   // merging stage; the UI renders a live count + rough ETA while they're set.
   progress_current?: number | null
@@ -130,29 +133,15 @@ export async function uploadToS3(url: string, file: File, contentType: string) {
   if (!res.ok) throw new Error(`S3 upload ${res.status}: ${await res.text()}`)
 }
 
-/** A concept mentioned in a document, with its synonyms — the reader matches
- *  these strings against the source text to highlight + link them inline. */
-export type DocumentConcept = {
-  id: string
-  name: string
-  aliases: string[]
-}
-
-/** The reader payload: the parsed source plus the concepts it gave rise to.
- *  `markdown` is null only when the source can't be recovered (still processing
- *  or a backfill re-parse failed) — the reader degrades to a link-out then. */
-export type DocumentContent = {
-  id: string
-  title: string
-  source_type: string
-  source_url: string | null
-  markdown: string | null
-  concepts: DocumentConcept[]
-}
-
-/** Fetch a document's parsed source + its concepts for the reader view. */
-export function getDocumentContent(id: string) {
-  return apiClient<DocumentContent>(`/api/documents/${id}/content`)
+/** A short-lived presigned URL to a file upload's original source in S3. With
+ *  `download`, the URL forces a local save (Content-Disposition: attachment);
+ *  otherwise it opens inline (e.g. a PDF in the browser viewer). 409s for a web
+ *  clip — it has no uploaded file, so open its `source_url` instead. */
+export function getDocumentDownloadUrl(id: string, opts?: { download?: boolean }) {
+  const q = opts?.download ? '?download=1' : ''
+  return apiClient<{ url: string }>(`/api/documents/${id}/download${q}`).then(
+    (r) => r.url,
+  )
 }
 
 // --- Concept graph ---------------------------------------------------------

@@ -7,6 +7,7 @@ stay non-blocking. Fewer deps than aioboto3 for the handful of calls we make.
 import asyncio
 import logging
 from functools import lru_cache
+from urllib.parse import quote
 
 import boto3
 
@@ -41,6 +42,18 @@ def _presign_put(key: str, content_type: str) -> str:
     )
 
 
+def _presign_get(key: str, filename: str | None, download: bool) -> str:
+    settings = get_settings()
+    params: dict = {"Bucket": settings.s3_bucket, "Key": key}
+    if download:
+        # RFC 5987 so non-ASCII (e.g. CJK) filenames survive the header intact.
+        name = quote(filename) if filename else "download"
+        params["ResponseContentDisposition"] = f"attachment; filename*=UTF-8''{name}"
+    return _client().generate_presigned_url(
+        "get_object", Params=params, ExpiresIn=_PRESIGN_TTL
+    )
+
+
 def _put(key: str, body: bytes, content_type: str) -> None:
     settings = get_settings()
     _client().put_object(
@@ -65,6 +78,17 @@ def _delete(keys: list[str]) -> None:
 async def presign_put_url(key: str, content_type: str) -> str:
     """A presigned PUT URL the browser uploads raw bytes to directly."""
     return await asyncio.to_thread(_presign_put, key, content_type)
+
+
+async def presign_get_url(
+    key: str, *, filename: str | None = None, download: bool = False
+) -> str:
+    """A presigned GET URL the browser opens to view (or save) an uploaded file.
+
+    ``download=True`` adds ``Content-Disposition: attachment`` so the browser saves
+    the file locally instead of rendering it inline (e.g. a PDF in the viewer).
+    """
+    return await asyncio.to_thread(_presign_get, key, filename, download)
 
 
 async def put_object(key: str, body: bytes, content_type: str) -> None:

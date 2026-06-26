@@ -5,8 +5,8 @@ import { toast } from 'sonner'
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   ChevronRight,
+  ExternalLink,
   FileText,
   Pencil,
   Plus,
@@ -76,7 +76,7 @@ export function ConceptPanel({
   onNavigate,
   onMutated,
   onAnnotationsChanged,
-  onOpenInReader,
+  onOpenSource,
 }: {
   node: GraphNode
   graph: GraphData
@@ -92,9 +92,8 @@ export function ConceptPanel({
   onMutated: () => void
   // Refetch the workspace annotation list after a note / highlight / flag change.
   onAnnotationsChanged: () => void
-  // Open a source document in the reader; the reader scrolls to this concept (the
-  // selected one) since it's what the panel is showing.
-  onOpenInReader: (documentId: string) => void
+  // Open a source document's original file/page (the source view).
+  onOpenSource: (documentId: string) => void
 }) {
   // Fetched data is tagged with the concept id it belongs to. The view derives
   // both the current-concept data and its loading flag from that tag, so a
@@ -463,12 +462,12 @@ export function ConceptPanel({
                             </Badge>
                           </button>
                           <button
-                            onClick={() => onOpenInReader(g.document_id)}
-                            aria-label="Open in reader"
-                            title="Open in reader and jump to this concept"
+                            onClick={() => onOpenSource(g.document_id)}
+                            aria-label="Open source"
+                            title="Open this document's source file"
                             className="shrink-0 self-stretch px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
                           >
-                            <BookOpen className="size-3.5" />
+                            <ExternalLink className="size-3.5" />
                           </button>
                         </div>
                         {open && (

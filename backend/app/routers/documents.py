@@ -6,9 +6,7 @@ document as `pending` and enqueues the worker; the frontend polls GET /{id} for
 `status`.
 """
 
-import asyncio
 import uuid
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
@@ -17,10 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
-from app.models import Concept, ConceptAlias, ConceptMention, Document
+from app.models import Document
 from app.services.concepts import sweep_orphan_concepts
-from app.services.parse import parse_document
-from app.services.storage import delete_objects, get_object, presign_put_url
+from app.services.storage import delete_objects, presign_get_url, presign_put_url
 from app.services.workspaces import (
     can_edit_graph,
     ensure_personal_workspace,
@@ -62,28 +59,10 @@ class DocumentOut(BaseModel):
     doc_metadata: dict | None = None  # clip-time page metadata (author/date/site/…), else null
 
 
-class DocumentConcept(BaseModel):
-    """A concept mentioned in a document, with its synonyms — the reader matches
-    these strings against the source text to highlight + link them inline."""
+class DocumentDownloadOut(BaseModel):
+    """A short-lived presigned URL to the uploaded source file in S3."""
 
-    id: uuid.UUID
-    name: str
-    aliases: list[str]
-
-
-class DocumentContentOut(BaseModel):
-    """The reader payload: the parsed source plus the concepts it gave rise to.
-
-    `markdown` is null only when the source can't be recovered (still processing,
-    or a backfill re-parse failed) — the reader degrades to a link-out then.
-    """
-
-    id: uuid.UUID
-    title: str
-    source_type: str
-    source_url: str | None
-    markdown: str | None
-    concepts: list[DocumentConcept]
+    url: str
 
 
 class DeleteDocumentsRequest(BaseModel):
@@ -225,71 +204,32 @@ async def get_document(
     return document
 
 
-@router.get("/{document_id}/content", response_model=DocumentContentOut)
-async def get_document_content(
+@router.get("/{document_id}/download", response_model=DocumentDownloadOut)
+async def get_document_download(
     document_id: uuid.UUID,
+    download: bool = Query(default=False),
     user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> DocumentContentOut:
-    """The reader payload — the parsed source plus the concepts it produced.
+) -> DocumentDownloadOut:
+    """A presigned URL to the user's original uploaded file.
 
-    `body_markdown` is written at ingest. Documents from before that existed get
-    it lazily here: re-parse the S3 original once and persist, so the first reader
-    open backfills and every later one is a plain column read. A re-parse failure
-    is non-fatal — `markdown` returns null and the reader degrades to a link-out.
+    The UI shows the source file itself (no in-app reader): a file upload links to
+    this URL (open inline, or `download=1` to save locally). A web clip has no
+    uploaded file — the user opens its `source_url` directly — so this 409s for one.
     """
     document = await session.get(Document, document_id)
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
     await require_workspace(session, user.id, document.workspace_id)
-
-    markdown = document.body_markdown
-    if markdown is None and document.status == "done":
-        try:
-            data = await get_object(document.s3_key)
-            markdown = await asyncio.to_thread(
-                parse_document, data, document.source_type
-            )
-            document.body_markdown = markdown
-            await session.commit()
-        except Exception:  # noqa: BLE001 — best-effort backfill; reader links out
-            markdown = None
-
-    # Concepts mentioned in THIS document, with their synonyms — the reader's
-    # highlight set. Distinct because a concept is mentioned once per chunk.
-    concept_rows = (
-        await session.execute(
-            select(Concept.id, Concept.name)
-            .join(ConceptMention, ConceptMention.concept_id == Concept.id)
-            .where(ConceptMention.document_id == document_id)
-            .distinct()
+    if document.source_url is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this document is a web clip — open its source_url, not a file download",
         )
-    ).all()
-    concept_ids = [cid for cid, _ in concept_rows]
 
-    aliases_by_concept: dict[uuid.UUID, list[str]] = defaultdict(list)
-    if concept_ids:
-        alias_rows = (
-            await session.execute(
-                select(ConceptAlias.concept_id, ConceptAlias.alias).where(
-                    ConceptAlias.concept_id.in_(concept_ids)
-                )
-            )
-        ).all()
-        for cid, alias in alias_rows:
-            aliases_by_concept[cid].append(alias)
-
-    return DocumentContentOut(
-        id=document.id,
-        title=document.title,
-        source_type=document.source_type,
-        source_url=document.source_url,
-        markdown=markdown,
-        concepts=[
-            DocumentConcept(id=cid, name=name, aliases=aliases_by_concept[cid])
-            for cid, name in concept_rows
-        ],
-    )
+    filename = document.s3_key.rsplit("/", 1)[-1]
+    url = await presign_get_url(document.s3_key, filename=filename, download=download)
+    return DocumentDownloadOut(url=url)
 
 
 @router.get("", response_model=list[DocumentOut])

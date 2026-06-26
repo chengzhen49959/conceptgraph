@@ -160,8 +160,9 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         data = await get_object(s3_key)
         text = await asyncio.to_thread(parse_document, data, source_type)
 
-        # Keep the parsed source so the reader can show the original. Stored before
+        # Persist the parsed source as the document's canonical text. Stored before
         # the empty-chunk early-return below so even a chunk-less doc retains its text.
+        # (The pipeline chunks the in-memory copy; this column is the durable record.)
         async with sessionmaker() as session:
             await session.execute(
                 update(Document).where(Document.id == doc_id).values(body_markdown=text)
