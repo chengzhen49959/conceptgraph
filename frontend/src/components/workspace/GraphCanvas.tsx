@@ -52,12 +52,12 @@ const DARK = {
   node: '#bcc1cb', // default monochrome node
   accent: '#8b6cef', // focused/selected node + hover ring (Obsidian purple)
   dim: 0.1, // opacity of node dots outside the highlight set
-  label: '#c8ccd2',
+  label: '#a7acb6', // resting label — Obsidian's muted grey
   labelHi: '#ffffff',
   labelShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.9)',
-  link: 'rgba(176,182,191,0.38)',
-  linkOn: 'rgba(214,218,224,0.72)',
-  linkOff: 'rgba(176,182,191,0.06)',
+  link: 'rgba(176,182,191,0.24)', // faint resting web (Obsidian)
+  linkOn: 'rgba(214,218,224,0.70)',
+  linkOff: 'rgba(176,182,191,0.05)',
 }
 const LIGHT = {
   bg: '#ffffff',
@@ -67,9 +67,9 @@ const LIGHT = {
   label: '#3a3f47',
   labelHi: '#0f1216',
   labelShadow: '0 1px 2px rgba(255,255,255,0.95), 0 0 2px rgba(255,255,255,0.95)',
-  link: 'rgba(70,76,86,0.32)',
-  linkOn: 'rgba(50,56,66,0.62)',
-  linkOff: 'rgba(70,76,86,0.06)',
+  link: 'rgba(70,76,86,0.22)', // faint resting web (Obsidian)
+  linkOn: 'rgba(50,56,66,0.60)',
+  linkOff: 'rgba(70,76,86,0.05)',
 }
 
 // Base style shared by every HTML label. Position is driven imperatively via
@@ -78,12 +78,12 @@ const LIGHT = {
 const LABEL_CSS =
   'position:absolute;left:0;top:0;white-space:nowrap;pointer-events:none;' +
   'will-change:transform;font-family:ui-sans-serif,system-ui,sans-serif;' +
-  '-webkit-font-smoothing:antialiased;line-height:1;font-size:12px;font-weight:500;'
+  '-webkit-font-smoothing:antialiased;line-height:1;font-size:11px;font-weight:400;'
 
 const endpointId = (e: string | FGNode) => (typeof e === 'object' ? e.id : e)
 
-// Approximate label height in CSS px (font ~12px, line-height:1).
-const LABEL_H = 15
+// Approximate label height in CSS px (font ~11px, line-height:1).
+const LABEL_H = 14
 
 // A label's screen-space rectangle (CSS px) used only for de-overlap. `m` is the
 // breathing room so labels never kiss.
@@ -305,14 +305,14 @@ export function GraphCanvas({
     return seen
   }, [settings.local.enabled, settings.local.depth, selectedId, neighbors])
 
-  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×). The
-  // base + coefficient are tuned tight on purpose — a high floor so orphans aren't
-  // specks and a gentle √ slope so a hub is only modestly bigger (radius spans ~1.7×
-  // across degree 0→25, ~2.8× in area), not the jarring 3×/9× the old 4 + 1.6·√d gave.
+  // Radius: scales with degree (Obsidian) × the Node size slider (0.5 ≈ 1×). Tuned
+  // small to match Obsidian's specks — a low base (~3px leaf) and a gentle √ slope so
+  // a hub is only modestly bigger. The earlier base 6 read as fat chunky dots, nothing
+  // like Obsidian's tiny nodes; this halves them.
   const radiusOf = useCallback(
     (n: FGNode) => {
       const mult = Math.max(0.3, settings.display.nodeSize * 2)
-      return (6 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 0.8) * mult
+      return (3 + Math.sqrt(degreeOf.get(n.id) ?? 0) * 0.7) * mult
     },
     [degreeOf, settings.display.nodeSize],
   )
@@ -567,14 +567,12 @@ export function GraphCanvas({
       return b.screenR - a.screenR
     })
 
-    // Screen-space boxes of the shown dots, so a resting label avoids sitting on one.
-    const dotBoxes: Box[] = shown.map(({ sp, screenR }) => ({
-      x0: sp.x - screenR,
-      y0: sp.y - screenR,
-      x1: sp.x + screenR,
-      y1: sp.y + screenR,
-    }))
-
+    // Obsidian's label model: every name sits centred *directly below* its dot —
+    // never scattered to the side or above (that reads as messy). Clutter is resolved
+    // by hiding, not by moving: a lower-priority label that would touch one already
+    // placed is simply dropped (the hard "two names never overlap" rule). Sorted
+    // focused-first then biggest-first, so the important names win their slot and the
+    // crowded small ones fall away — exactly how Obsidian thins labels as you zoom.
     const placed: Box[] = []
     for (const { v, sp, screenR, show, focus } of shown) {
       // Insurance: a zero-width box never registers an overlap, so a mismeasured
@@ -586,67 +584,20 @@ export function GraphCanvas({
       }
       const hw = v.w / 2
       const hh = LABEL_H / 2
-      const boxAt = (lx: number, ly: number): Box => ({
-        x0: lx - hw,
-        y0: ly - hh,
-        x1: lx + hw,
-        y1: ly + hh,
-      })
+      // Centred just under the dot.
+      const lx = sp.x
+      const ly = sp.y + screenR + 4 + hh
+      const box: Box = { x0: lx - hw, y0: ly - hh, x1: lx + hw, y1: ly + hh }
 
-      // Label-centre candidates around the dot, nearest-first: below, above, right,
-      // left, then the diagonals — repeated at growing radii so a dense cluster can
-      // still find an open spot before giving up. centers[0] (just below) is the
-      // resting home each label falls back to.
-      const centers: [number, number][] = []
-      for (const ring of [0, 1, 2]) {
-        const ext = ring * (LABEL_H + 4)
-        const oy = screenR + 7 + hh + ext
-        const ox = screenR + 7 + hw + ext
-        centers.push(
-          [sp.x, sp.y + oy],
-          [sp.x, sp.y - oy],
-          [sp.x + ox, sp.y],
-          [sp.x - ox, sp.y],
-          [sp.x + ox, sp.y + oy],
-          [sp.x - ox, sp.y + oy],
-          [sp.x + ox, sp.y - oy],
-          [sp.x - ox, sp.y - oy],
-        )
-      }
-
-      // While dragging the sim fires every frame — skip the O(n²) de-overlap search
-      // and drop every label below its dot until the drag ends.
-      if (dragging) {
-        const [bx, by] = centers[0]
-        v.el.style.display = 'block'
-        v.el.style.color = show ? c.labelHi : c.label
-        v.el.style.transform = `translate(${Math.round(bx)}px, ${Math.round(by)}px) translate(-50%, -50%)`
-        continue
-      }
-
-      // De-overlap EVERY shown label (focused, highlighted, and resting alike): take
-      // the first candidate clear of every already-placed label AND every dot. No
-      // open spot anywhere → hide the label rather than let two names overlap (the
-      // hard rule), except the selected/hovered node, which sorts first and always
-      // keeps its name below its dot.
-      const free = centers.find(([cx, cy]) => {
-        const b = boxAt(cx, cy)
-        return (
-          !placed.some((p) => overlaps(p, b)) &&
-          !dotBoxes.some((d) => overlaps(d, b, 1))
-        )
-      })
-      let lx: number
-      let ly: number
-      if (free) {
-        ;[lx, ly] = free
-      } else if (focus) {
-        ;[lx, ly] = centers[0]
-      } else {
+      // Focused (selected/hovered) labels are never dropped — they claim their slot
+      // first. While dragging the sim is hot, so skip the O(n²) collision scan and let
+      // every label sit below its dot until the drag settles. Otherwise a resting
+      // label that would touch one already placed is hidden rather than overlapped.
+      if (!focus && !dragging && placed.some((p) => overlaps(p, box))) {
         v.el.style.display = 'none'
         continue
       }
-      placed.push(boxAt(lx, ly))
+      placed.push(box)
 
       v.el.style.display = 'block'
       v.el.style.color = show ? c.labelHi : c.label

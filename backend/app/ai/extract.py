@@ -36,11 +36,14 @@ English name (a passage in Chinese still yields English names such as
 into the Latin alphabet. The output must contain no CJK or other non-English
 characters.
 
-CONCEPTS — every concept that passes the inclusion test below. Do NOT cap the
-count; return as many as the passage substantively covers (a dense passage has
-several, a thin one may have none). A core concept is a specific, nameable idea:
-a method, mechanism, structure, principle, phenomenon, framework, or result
-the passage introduces, explains, or builds on directly.
+CONCEPTS — every concept NAMED in the passage that passes the inclusion test
+below. Your job here is RECALL, not judgement: include a concept even if the
+passage only mentions it in passing. A separate document-level pass decides which
+of these concepts the document is actually about, so MISSING a named concept is
+the costly error here — keeping a minor one is not. Do NOT cap the count; return
+as many distinct concepts as the passage names (a dense passage has many, a thin
+one may have none). A concept is a specific, nameable idea: a method, mechanism,
+structure, principle, phenomenon, framework, or result.
 
 Include a concept only if ALL hold:
 - An encyclopedia could have a focused article under exactly this name.
@@ -52,7 +55,6 @@ Include a concept only if ALL hold:
   idea, method, or framework they introduced instead, under its standard name
   (a passage by Darwin on evolution yields "natural selection", never "Darwin").
   The same applies to an organization cited only as a source.
-- The passage substantively explains or uses it — not a passing mention.
 - It is NOT a sentence, clause, claim, or question — only a noun-phrase term.
 
 Prefer the most specific name the passage treats. Use the standard community

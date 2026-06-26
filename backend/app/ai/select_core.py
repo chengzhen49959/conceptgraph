@@ -19,6 +19,8 @@ and from merge (it only decides *which* concepts this document contributes — i
 never deletes concepts other documents own).
 """
 
+import re
+
 from pydantic import BaseModel
 
 from app.ai.client import LLM_SEMAPHORE, get_client
@@ -81,6 +83,89 @@ When genuinely unsure, DROP. A false core tag pollutes every later query against
 this document; a missed one does not. Favour precision over recall."""
 
 
+# A survey/review's contribution is to MAP a whole area, so its core is broader
+# than a single method: the aboutness test (tuned for "what is THE contribution")
+# is too strict and drops the flagship sub-areas the survey is actually organised
+# around. This addendum is APPENDED to the base prompt for those documents only —
+# the contribution-paper prompt above is left byte-for-byte unchanged, so a
+# survey-detector false positive is the only way this can touch a normal paper
+# (and its downside is a slightly looser keep, never the reverse).
+_SURVEY_ADDENDUM = """
+
+THIS DOCUMENT IS A SURVEY / REVIEW, AND THE INSTRUCTIONS ABOVE NOW CHANGE FOR IT.
+A survey has no single contribution; its job is to MAP a whole field, so its core
+is the WHOLE SET of named ideas it catalogs. Override the precision-lean above:
+for this document, when in doubt KEEP. Recall of the field's substance is the goal.
+
+Do NOT collapse to the survey's top-level section titles. Those few umbrella
+headings (e.g. its "pre-training", "adaptation", "utilization", "evaluation"
+chapters) are the SHALLOWEST possible answer and miss the point. Go one level
+deeper: the survey's real content is the specific, named things it surveys WITHIN
+those chapters — each named method, model family, learning paradigm, training or
+tuning technique, prompting/reasoning strategy, scaling relationship, alignment
+approach, capability, and emergent phenomenon it describes and compares. EVERY such
+named concept is core to a survey, even when it lives inside a broader section and
+even when it is attributed to other work.
+
+Calibrate the COUNT accordingly: a comprehensive survey legitimately has MANY core
+concepts — typically several dozen. If you have kept only a handful, you have
+stopped at the section headings; go back and include the named sub-topics.
+
+Still DROP genuine incidentals, exactly as before: specific datasets, benchmarks,
+metrics, leaderboards, libraries, software tools, hardware, and one-off cited
+systems named only as a passing example. The test for a survey is "does the survey
+substantively describe or compare this as part of its map of the field" — broadened
+from "is this THE contribution", but a true name-drop is still a drop."""
+
+# Cheap, deterministic survey/review/position detection from the document's own
+# framing (no extra LLM call). The title — prepended verbatim by `thesis_anchor`
+# as the first "TITLE: ..." line — is the strongest, near-zero-false-positive
+# signal; an explicit self-description in the abstract opening is the backup.
+_SURVEY_TITLE_RE = re.compile(r"\b(survey|review|overview|taxonomy)\b", re.I)
+# Strict self-identification only — a survey calls ITSELF one. The detector must
+# bias HARD to precision: a false positive loosens a contribution paper's gate
+# (the one regression that matters), while a false negative merely keeps the base
+# precision-first behaviour. So this matches only phrasings a contribution paper
+# essentially never uses: "in this survey/review/overview" (self-naming, never said
+# of a related-work section) and "we present/provide a survey" (the NOUN survey
+# only — "review"/"overview" are too polysemous: "we give a review of baselines",
+# "this paper reviews and proposes" are contribution-paper phrasings, not surveys).
+_SURVEY_BODY_RE = re.compile(
+    r"\bin\s+this\s+(?:survey|review|overview)\b"
+    r"|\bwe\s+(?:present|provide|conduct|offer)\s+(?:a|an)\s+(?:comprehensive\s+|systematic\s+|brief\s+)?survey\b",
+    re.I,
+)
+
+
+def _is_survey(anchor: str) -> bool:
+    """Whether the document framing reads as a survey/review/overview.
+
+    Title-first: a `survey`/`review`/`overview`/`taxonomy` in the title is a near-
+    certain signal and almost never appears in a contribution paper's title. Falls
+    back to an explicit "in this survey we review …" self-description in the
+    abstract. A false positive only loosens one document's gate slightly; a false
+    negative just leaves the base (precision-first) behaviour — both fail safe.
+    """
+    if not anchor:
+        return False
+    first_line = anchor.splitlines()[0] if anchor else ""
+    if first_line.upper().startswith("TITLE:") and _SURVEY_TITLE_RE.search(first_line):
+        return True
+    return bool(_SURVEY_BODY_RE.search(anchor[:1500]))
+
+
+# The shared client's per-request timeout (45s, app/ai/client.py) is tuned for the
+# small, fast PER-CHUNK extraction calls — a stalled one should fail fast. The gate
+# is a different kind of call: ONE per document over EVERY candidate, so a large
+# document (a 600k-char survey yields thousands of candidates) legitimately reasons
+# for minutes. Under the shared 45s it times out, burns all retries, and fails the
+# whole document at the gate. This call therefore overrides the timeout to a value
+# matched to its real cost — still far under the worker's 1800s job ceiling, and one
+# retry rides out a transient blip without re-paying a full long timeout many times.
+_GATE_TIMEOUT = 300.0
+_GATE_RETRIES = 1
+
+
 def _render(anchor: str, candidates: list[CandidateConcept]) -> str:
     lines = [
         "DOCUMENT FRAMING (authors' own words — title, abstract, introduction, conclusion):",
@@ -109,12 +194,17 @@ async def select_core_concepts(
     if not candidates:
         return set()
     all_names = {c.name.strip().lower() for c in candidates}
+    # A survey's core is a whole area, not one method — widen the aboutness test for
+    # it (the base prompt is left intact for contribution papers, see _SURVEY_ADDENDUM).
+    instructions = _INSTRUCTIONS + (_SURVEY_ADDENDUM if _is_survey(anchor) else "")
     client = get_client()
     settings = get_settings()
     async with LLM_SEMAPHORE:
-        resp = await client.responses.parse(
+        resp = await client.with_options(
+            timeout=_GATE_TIMEOUT, max_retries=_GATE_RETRIES
+        ).responses.parse(
             model=settings.select_core_model,
-            instructions=_INSTRUCTIONS,
+            instructions=instructions,
             input=_render(anchor, candidates),
             text_format=CoreSelection,
             # The precision gate for the whole graph — one call per document, so the
