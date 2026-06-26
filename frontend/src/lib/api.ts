@@ -90,7 +90,6 @@ export type DocumentOut = {
 export type CreateDocumentResponse = {
   document_id: string
   upload_url: string
-  job_id: string | null
 }
 
 /** A document is still being processed (worker hasn't reached a terminal state). */
@@ -111,6 +110,16 @@ export function createDocument(body: {
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+/** Enqueue ingestion — call only AFTER `uploadToS3` resolves. Enqueue is split
+ *  out of `createDocument` so the worker never reads the S3 object before the
+ *  browser's PUT lands it (a `NoSuchKey` race). Idempotent server-side. */
+export function startIngest(documentId: string) {
+  return apiClient<{ job_id: string | null }>(
+    `/api/documents/${documentId}/ingest`,
+    { method: 'POST' },
+  )
 }
 
 /** Content type derived from the filename — `File.type` is empty for `.md`, and

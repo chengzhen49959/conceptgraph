@@ -19,6 +19,7 @@ import {
   listAnnotations,
   listDocuments,
   resolveAnnotation,
+  startIngest,
   uploadToS3,
 } from '@/lib/api'
 import { useGraphSettings } from '@/lib/graph-settings'
@@ -186,9 +187,10 @@ export function WorkspaceView({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Upload one or many files. Each file is its own independent ingest: presign →
-  // PUT to S3 → its `ingest_document` job (already enqueued by createDocument). A
-  // few run at a time — the slow part is the S3 PUT, and the worker's per-workspace
+  // Upload one or many files. Each file is its own independent ingest: presign
+  // (createDocument) → PUT to S3 → enqueue (startIngest). Enqueue comes AFTER the
+  // PUT so the worker never reads the object before it exists (a NoSuchKey race).
+  // A few run at a time — the slow part is the S3 PUT, and the worker's per-workspace
   // merge lock serialises the heavy graph-merge phase no matter how fast we enqueue,
   // so a bad file only fails itself and never sinks the rest of the batch.
   const handleFiles = useCallback(
@@ -200,13 +202,14 @@ export function WorkspaceView({
       const uploadOne = async (file: File) => {
         try {
           const contentType = contentTypeFor(file.name)
-          const { upload_url } = await createDocument({
+          const { document_id, upload_url } = await createDocument({
             filename: file.name,
             content_type: contentType,
             title: file.name,
             workspace_id: workspaceId,
           })
           await uploadToS3(upload_url, file, contentType)
+          await startIngest(document_id) // enqueue only now the bytes are in S3
           ok += 1
         } catch (e) {
           failures.push(`${file.name}: ${(e as Error).message}`)

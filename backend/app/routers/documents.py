@@ -1,9 +1,11 @@
 """Document upload + status — the frontend's ingestion contract.
 
-Upload is two steps: POST here to get a presigned `upload_url`, then PUT the raw
-bytes straight to S3 (NOT through the JSON API client). The backend inserts the
-document as `pending` and enqueues the worker; the frontend polls GET /{id} for
-`status`.
+Upload is three steps so the worker never reads an S3 object before it exists:
+POST here for a presigned `upload_url` (inserts the document as `pending`, no job
+yet), PUT the raw bytes straight to S3 (NOT through the JSON API client), then
+POST /{id}/ingest to enqueue the worker. The frontend polls GET /{id} for
+`status`. (Enqueuing at create time raced the browser's PUT — the worker's
+`get_object` 404'd with `NoSuchKey` before the bytes landed.)
 """
 
 import uuid
@@ -38,6 +40,9 @@ class CreateDocumentRequest(BaseModel):
 class CreateDocumentResponse(BaseModel):
     document_id: uuid.UUID
     upload_url: str
+
+
+class IngestResponse(BaseModel):
     job_id: str | None
 
 
@@ -104,9 +109,8 @@ def _source_type(filename: str, content_type: str) -> str:
     return "text"
 
 
-async def persist_and_enqueue_document(
+async def persist_pending_document(
     session: AsyncSession,
-    arq,
     *,
     document_id: uuid.UUID,
     workspace_id: uuid.UUID,
@@ -116,15 +120,14 @@ async def persist_and_enqueue_document(
     source_url: str | None = None,
     source_url_canonical: str | None = None,
     doc_metadata: dict | None = None,
-) -> str | None:
-    """Insert a pending Document and enqueue ingestion — the shared tail of every
-    ingestion entrypoint (file upload here, web clip in routers/imports.py).
+) -> None:
+    """Insert a `pending` Document row — the shared head of every ingestion
+    entrypoint (file upload here, web clip in routers/imports.py).
 
-    The caller has already resolved and access-checked the workspace, chosen the
-    id, and placed the bytes in S3 (presigned PUT for uploads, server-side
-    ``put_object`` for clips). Returns the arq job id (None if enqueue yielded
-    nothing). Both entrypoints feed the identical ``ingest_document`` job, so a
-    clipped page and an uploaded file merge into one graph through one pipeline.
+    Does NOT enqueue: the worker reads the file's bytes back from S3, so the job
+    must not be queued until those bytes exist. The clip path puts them server-side
+    first and enqueues straight away (``persist_and_enqueue_document``); the upload
+    path enqueues only after the browser's presigned PUT lands (POST /{id}/ingest).
     """
     session.add(
         Document(
@@ -140,8 +143,48 @@ async def persist_and_enqueue_document(
         )
     )
     await session.commit()
+
+
+async def enqueue_ingest(arq, document_id: uuid.UUID) -> str | None:
+    """Enqueue the ``ingest_document`` job. The caller must have ensured the file's
+    bytes are already in S3 — else the worker's ``get_object`` races to a
+    ``NoSuchKey``. Returns the arq job id (None if enqueue yielded nothing)."""
     job = await arq.enqueue_job("ingest_document", str(document_id))
     return job.job_id if job else None
+
+
+async def persist_and_enqueue_document(
+    session: AsyncSession,
+    arq,
+    *,
+    document_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    title: str,
+    source_type: str,
+    s3_key: str,
+    source_url: str | None = None,
+    source_url_canonical: str | None = None,
+    doc_metadata: dict | None = None,
+) -> str | None:
+    """Persist a pending document and enqueue it in one step — for entrypoints that
+    have *already* placed the bytes in S3 (the web clip's server-side
+    ``put_object``). The file-upload path can't use this: its bytes arrive via a
+    later browser PUT, so it persists here and enqueues from POST /{id}/ingest.
+    Both entrypoints feed the identical ``ingest_document`` job, so a clipped page
+    and an uploaded file merge into one graph through one pipeline.
+    """
+    await persist_pending_document(
+        session,
+        document_id=document_id,
+        workspace_id=workspace_id,
+        title=title,
+        source_type=source_type,
+        s3_key=s3_key,
+        source_url=source_url,
+        source_url_canonical=source_url_canonical,
+        doc_metadata=doc_metadata,
+    )
+    return await enqueue_ingest(arq, document_id)
 
 
 @router.post("", response_model=CreateDocumentResponse)
@@ -165,8 +208,9 @@ async def create_document(
                 "only an editor or owner can upload documents",
             )
 
-    arq = request.app.state.arq
-    if arq is None:
+    # Fail fast if the queue is down — no point uploading bytes that can never
+    # ingest. The enqueue itself happens later, in POST /{id}/ingest.
+    if request.app.state.arq is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "ingestion queue unavailable (REDIS_URL not configured)",
@@ -177,18 +221,53 @@ async def create_document(
     # Presign first so an S3 misconfig fails before we persist an orphan row.
     upload_url = await presign_put_url(s3_key, body.content_type)
 
-    job_id = await persist_and_enqueue_document(
+    # Persist `pending` but DON'T enqueue: the worker reads the bytes back from S3,
+    # and the browser hasn't PUT them yet. The client enqueues via /{id}/ingest
+    # once its PUT lands (else the worker get_object's a NoSuchKey before upload).
+    await persist_pending_document(
         session,
-        arq,
         document_id=document_id,
         workspace_id=workspace.id,
         title=body.title or body.filename,
         source_type=_source_type(body.filename, body.content_type),
         s3_key=s3_key,
     )
-    return CreateDocumentResponse(
-        document_id=document_id, upload_url=upload_url, job_id=job_id
-    )
+    return CreateDocumentResponse(document_id=document_id, upload_url=upload_url)
+
+
+@router.post("/{document_id}/ingest", response_model=IngestResponse)
+async def start_ingest(
+    document_id: uuid.UUID,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> IngestResponse:
+    """Enqueue ingestion once the browser's presigned PUT has landed the bytes.
+
+    Split from POST /api/documents so the worker never reads an S3 object before it
+    exists: create presigns + inserts the `pending` row, the browser PUTs the file,
+    then this enqueues the job. Idempotent — a document already past `pending`
+    (re-called, or a duplicate) is a no-op, not a re-ingest.
+    """
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+    _, role = await require_workspace_role(session, user.id, document.workspace_id)
+    if not can_edit_graph(role):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "only an editor or owner can upload documents",
+        )
+    if document.status != "pending":
+        return IngestResponse(job_id=None)  # already ingesting / done — no-op
+
+    arq = request.app.state.arq
+    if arq is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "ingestion queue unavailable (REDIS_URL not configured)",
+        )
+    return IngestResponse(job_id=await enqueue_ingest(arq, document_id))
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
