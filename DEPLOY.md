@@ -3,6 +3,33 @@
 Architecture: **Next.js (Vercel)** → **FastAPI API + arq worker (Render)** →
 Aurora Postgres + Redis + S3 + OpenAI + Cognito.
 
+## Live URLs
+
+| Piece | URL / id | Status |
+|-------|----------|--------|
+| Frontend (Vercel) | https://concept-graph.vercel.app | ✅ live |
+| Backend web (Render) | https://concept-graph-api.onrender.com — `srv-d8vd33r7uimc73ani0p0` | ✅ live (free plan) |
+| Backend worker (Render) | arq | ❌ not created — needs Render billing (no free worker tier) |
+| Redis (Render Key Value) | `red-d8vd21urnols738777f0` (virginia, free) | ✅ live |
+| S3 CORS for the Vercel origin | bucket `hackathon-concept-graph-435756741973` | ✅ applied |
+| Aurora SG ingress | `sg-0715421ffa5971eed` ← `74.220.49.18/32` (Render egress) | ✅ whitelisted |
+
+Vercel project: `chengzhen49959-3084s-projects/concept-graph` (root = `frontend/`,
+deployed via `vercel deploy --prod` from the CLI — not Git-connected).
+Render services created via the REST API (not a dashboard Blueprint), all in the
+`virginia` region. AWS keys were injected from `~/.aws/credentials` because
+`backend/.env.local` leaves them blank (local boto3 uses the default chain).
+
+### Remaining to be fully live
+- **Worker**: add a card at https://dashboard.render.com/billing, then create a
+  `background_worker` (rootDir `backend`, start `uv run arq app.worker.WorkerSettings`,
+  same env group + `REDIS_URL=redis://red-d8vd21urnols738777f0:6379`). Until then,
+  uploads enqueue but nothing drains the queue — no ingestion.
+- **Free web caveat**: spins down after ~15 min idle (cold start ~30-60 s). Bump to
+  `starter` once billing exists.
+- **Security**: rotate the Render API key used to provision; prefer a scoped IAM
+  user over the root `~/.aws` keys now sitting in Render env.
+
 ```
 Browser ──HTTPS──> Vercel (Next.js)
                       │  NEXT_PUBLIC_API_URL
