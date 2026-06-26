@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
-from app.models import Cluster, Concept, ConceptAlias, ConceptMention, Document
+from app.models import Concept, ConceptAlias, ConceptMention, Document
+from app.services.concepts import sweep_orphan_concepts
 from app.services.parse import parse_document
 from app.services.storage import delete_objects, get_object, presign_put_url
 from app.services.workspaces import (
@@ -322,10 +323,11 @@ async def delete_documents(
     """Delete documents and garbage-collect anything only they supported.
 
     Deleting a document cascades its chunks and mentions away (FK ON DELETE
-    CASCADE). Concepts are workspace-scoped, so one that was mentioned *only* by
-    the deleted documents would otherwise linger as a 0-mention ghost node — we
-    sweep those out (their edges and aliases cascade in turn), then drop any
-    cluster left with no concepts. Concepts still cited by other documents stay.
+    CASCADE). Concepts are workspace-scoped, so an *extracted* one mentioned *only*
+    by the deleted documents would otherwise linger as a 0-mention ghost node —
+    `sweep_orphan_concepts` reaps those (edges and aliases cascade, emptied clusters
+    drop). Extracted concepts still cited by other documents stay; manual nodes,
+    which legitimately stand alone, are never touched.
 
     Workspace ownership is enforced by the WHERE clause, and missing ids are
     simply skipped, so deleting the same id twice is a no-op success.
@@ -363,32 +365,16 @@ async def delete_documents(
         )
     )
 
-    # 2. Orphan concepts: none mentioned anywhere → cascade removes edges/aliases.
-    has_mention = (
-        select(ConceptMention.concept_id)
-        .where(ConceptMention.concept_id == Concept.id)
-        .exists()
-    )
-    concept_result = await session.execute(
-        delete(Concept).where(
-            Concept.workspace_id == workspace.id,
-            ~has_mention,
-        )
-    )
-
-    # 3. Clusters left with no concepts after the sweep.
-    has_concept = select(Concept.id).where(Concept.cluster_id == Cluster.id).exists()
-    await session.execute(
-        delete(Cluster).where(
-            Cluster.workspace_id == workspace.id,
-            ~has_concept,
-        )
-    )
+    # 2. Garbage-collect concepts the deleted documents were the last to mention,
+    #    plus any cluster thereby emptied (edges/aliases cascade). Shared with the
+    #    ingest pipeline so the "extracted concept ⇒ some document mentions it"
+    #    invariant lives in exactly one place; manual nodes stand alone and are spared.
+    deleted_concepts = await sweep_orphan_concepts(session, workspace.id)
 
     await session.commit()
     await delete_objects(list(s3_keys))
 
     return DeleteDocumentsResponse(
         deleted_documents=doc_result.rowcount or 0,
-        deleted_concepts=concept_result.rowcount or 0,
+        deleted_concepts=deleted_concepts,
     )

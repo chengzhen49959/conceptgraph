@@ -10,13 +10,13 @@ race backstop: a lost merge lock degrades to "found existing", never a duplicate
 import uuid
 from collections.abc import Iterable
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ai import embed_text, match_concept, merge_descriptions
 from app.config import get_settings
-from app.models import Concept, ConceptAlias, ConceptMention, Edge
+from app.models import Cluster, Concept, ConceptAlias, ConceptMention, Edge
 
 
 async def resolve_concept(
@@ -290,3 +290,49 @@ async def upsert_edges(
             set_={"weight": Edge.weight + stmt.excluded.weight},
         )
     )
+
+
+async def sweep_orphan_concepts(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> int:
+    """Delete *extracted* concepts no document mentions, plus any cluster thereby
+    left empty. Returns the number of concepts swept.
+
+    The graph's invariant: an extracted concept exists only as long as some
+    document mentions it. The ingest pipeline creates a concept node (Phase 1)
+    and its provenance mentions (Phase 2) in SEPARATE transactions, and
+    ``concept_mentions`` cascades only from its document — so a concept can be
+    stranded with zero mentions two ways: an ingest dies between the phases, or a
+    document row is removed by any path other than this sweep. Either leaves a
+    ghost node with no document/topic behind it (and, worse, its embedding still
+    pollutes the merge ANN pool, so a later ingest can resurrect it). This
+    reconciles both. Manual concepts (``origin='manual'``) are user-drawn and may
+    legitimately stand alone, so they are exempt.
+
+    Callers MUST hold the per-workspace merge lock (the worker) or run inside a
+    document-delete transaction (the delete endpoint): both already serialise the
+    duplicate-prone graph writes, so no concurrent ingest can be mid-merge with a
+    not-yet-mentioned extracted concept that this would wrongly reap.
+    """
+    has_mention = (
+        select(ConceptMention.concept_id)
+        .where(ConceptMention.concept_id == Concept.id)
+        .exists()
+    )
+    result = await session.execute(
+        delete(Concept).where(
+            Concept.workspace_id == workspace_id,
+            Concept.origin == "extracted",
+            ~has_mention,
+        )
+    )
+    # Clusters emptied by the sweep (concept FK is ON DELETE SET NULL, so they'd
+    # otherwise linger as empty topics).
+    has_concept = select(Concept.id).where(Concept.cluster_id == Cluster.id).exists()
+    await session.execute(
+        delete(Cluster).where(
+            Cluster.workspace_id == workspace_id,
+            ~has_concept,
+        )
+    )
+    return result.rowcount or 0

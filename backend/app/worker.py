@@ -31,7 +31,13 @@ from app.db import _sessionmaker, get_engine
 from app.models import Chunk, Document
 from app.services.chunk import chunk_text
 from app.services.clustering import recompute_clusters
-from app.services.concepts import add_aliases, add_mentions, resolve_concept, upsert_edges
+from app.services.concepts import (
+    add_aliases,
+    add_mentions,
+    resolve_concept,
+    sweep_orphan_concepts,
+    upsert_edges,
+)
 from app.services.dedup_sweep import sweep_workspace
 from app.services.parse import parse_document
 from app.services.storage import get_object
@@ -351,6 +357,14 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
                         .where(Document.id == doc_id)
                         .values(summary=doc_summary, summary_embedding=summary_vec)
                     )
+                # Reconcile orphans BEFORE clustering: a prior ingest that died
+                # between concept-create (Phase 1, committed per node) and this
+                # provenance write leaves extracted concepts with no mention — ghost
+                # nodes that also pollute the merge ANN pool. This doc's concepts are
+                # already mentioned in this same transaction, so the sweep spares them
+                # and only reaps stale orphans. Safe here: the per-workspace merge lock
+                # is held, so no concurrent ingest is mid-merge. (See sweep_orphan_concepts.)
+                await sweep_orphan_concepts(session, workspace_id)
                 await session.commit()
 
             # Phase 3 — refresh clusters (labels via LLM, hoisted; own sessions).
