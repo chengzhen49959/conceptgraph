@@ -515,42 +515,43 @@ export function WorkspaceView({
             />
           )}
           {graphView()}
+
+          {/* Detail panels OVERLAY the canvas area (this container is `relative`),
+              below the topbar and above the status bar — so they never push/resize the
+              canvas (which made the graph jump) while the header search/options stay
+              reachable. They slide in over the right edge of the graph. */}
+          {selectedNode && (
+            <aside className="absolute inset-y-0 right-0 z-20 flex w-80 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
+              <ConceptPanel
+                node={selectedNode}
+                graph={graph}
+                canEdit={canEdit}
+                canComment={canComment}
+                annotations={conceptAnnotations}
+                workspaceId={workspaceId}
+                onClose={() => setSelectedId(null)}
+                onNavigate={selectConcept}
+                onMutated={refreshGraph}
+                onAnnotationsChanged={refreshAnnotations}
+                onOpenSource={openSource}
+              />
+            </aside>
+          )}
+
+          {focusedCluster && (
+            <aside className="absolute inset-y-0 right-0 z-20 flex w-80 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
+              <TopicPanel
+                cluster={focusedCluster}
+                graph={graph}
+                onClose={() => setFocusedTopicId(null)}
+                onSelectConcept={selectConcept}
+              />
+            </aside>
+          )}
         </div>
 
         <StatusBar graph={graph} documents={docs} />
       </SidebarInset>
-
-      {/* Full-height detail panel: sibling of the inset so it spans the whole
-          window height, symmetric with the left sidebar. The topbar and status
-          bar live inside the inset and only span the canvas. */}
-      {selectedNode && (
-        <aside className="flex w-80 shrink-0 border-l bg-background">
-          <ConceptPanel
-            node={selectedNode}
-            graph={graph}
-            canEdit={canEdit}
-            canComment={canComment}
-            annotations={conceptAnnotations}
-            workspaceId={workspaceId}
-            onClose={() => setSelectedId(null)}
-            onNavigate={selectConcept}
-            onMutated={refreshGraph}
-            onAnnotationsChanged={refreshAnnotations}
-            onOpenSource={openSource}
-          />
-        </aside>
-      )}
-
-      {focusedCluster && (
-        <aside className="flex w-80 shrink-0 border-l bg-background">
-          <TopicPanel
-            cluster={focusedCluster}
-            graph={graph}
-            onClose={() => setFocusedTopicId(null)}
-            onSelectConcept={selectConcept}
-          />
-        </aside>
-      )}
 
       <SearchPalette
         open={searchOpen}

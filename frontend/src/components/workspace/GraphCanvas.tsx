@@ -94,6 +94,12 @@ const VP_MARGIN = 140
 // cells it spans → O(n) amortised instead of O(n²) against every placed box.
 const GRID_CELL = 64
 
+// Padding (px) for whole-graph "overview" fits — the initial load view and every
+// zoom-back-out (deselect, unfocus, Fit button). Higher = the graph sits further
+// from the viewport edges (more readable breathing room, less "zoomed in"). The
+// node-neighbourhood and cluster fits use their own tighter pads.
+const OVERVIEW_PAD = 120
+
 // A label's screen-space rectangle (CSS px) used only for de-overlap. `m` is the
 // breathing room so labels never kiss.
 type Box = { x0: number; y0: number; x1: number; y1: number }
@@ -193,6 +199,15 @@ export function GraphCanvas({
   const recenterArmedRef = useRef(false)
   const prevFocusedRef = useRef<string | null>(null)
   const refitArmedRef = useRef(false)
+  // Debounces the first-paint reveal: each settle (onEngineStop) re-arms it, so a
+  // forces/topology reheat that re-settles pushes the reveal out — the graph is shown
+  // only once it's actually stable, never mid-motion.
+  const revealTimerRef = useRef<number>(0)
+  // The selection the select-zoom last fired for. Mounting the detail panel shrinks
+  // the canvas and re-fires the select effect for the SAME node; this guard fits once
+  // per selection (on the click) and ignores that resize re-fire, so the camera flies
+  // in once instead of jumping when the panel lands.
+  const lastFitSelRef = useRef<string | null>(null)
 
   const [Comp, setComp] = useState<ForceGraphComponent | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -202,6 +217,11 @@ export function GraphCanvas({
   // mid-drag, so we track this explicitly instead of leaning on hoverId.
   const [dragId, setDragId] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  // First-paint gate: the full view stays hidden until the layout has settled and
+  // the initial zoom-to-fit has framed it, then fades in — so the user never sees
+  // the nodes scramble + the camera jump. The thumbnail (reading view) is small and
+  // re-fits constantly, so it starts revealed.
+  const [revealed, setRevealed] = useState(thumbnail)
 
   // Eased highlight strength: 0 = resting, 1 = fully focused. Drives the smooth
   // fade of dimmed nodes/links so hover + cluster highlight breathe in and out
@@ -230,6 +250,19 @@ export function GraphCanvas({
       alive = false
     }
   }, [])
+
+  // Safety net for the first-paint gate: if onEngineStop never fires (a degenerate
+  // cooldown), fit-then-reveal anyway after a generous delay — fit first so even this
+  // fallback never shows an animated zoom, and long enough that it can't race a normal
+  // settle (which would reveal mid-motion).
+  useEffect(() => {
+    if (revealed) return
+    const t = setTimeout(() => {
+      fgRef.current?.zoomToFit(0, OVERVIEW_PAD)
+      setRevealed(true)
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [revealed])
 
   // Track the container size so the canvas fills its panel.
   useEffect(() => {
@@ -462,13 +495,14 @@ export function GraphCanvas({
     }
   }, [highlightIds])
 
-  // Pan the selected node + its 1-hop neighbours to the canvas centre, keeping the
-  // current zoom (so a manual zoom-in then stays centred on it). Deselecting does NOT
-  // just pan back — it zooms back OUT to the whole-graph overview (the reported "放大
-  // 后点空白要缩小回中": clicking empty space should pop the view back out, not stay
-  // zoomed in). Re-runs when the canvas resizes (the right panel mounting shrinks it /
-  // unmounting widens it), so the framing lands in the *visible* area, not behind the
-  // panel. Camera-only (pan or zoom, no force change) ⇒ no reheat.
+  // Zoom + pan to FRAME the selected node and its 1-hop neighbours, with readable
+  // padding to the viewport edge — so a click smoothly flies in to that node's
+  // neighbourhood (and re-firing on a different selection smoothly refocuses on it).
+  // Deselecting zooms back OUT to the whole-graph overview (clicking empty space pops
+  // the view back out, not stay zoomed in). Re-runs when the canvas resizes (the right
+  // panel mounting shrinks it / unmounting widens it), so the framing lands in the
+  // *visible* area, not behind the panel. Camera-only (zoom + pan, no force change) ⇒
+  // no reheat.
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
@@ -480,6 +514,7 @@ export function GraphCanvas({
     // so a later unrelated resize leaves a manually-adjusted camera alone. The visible
     // filter keeps it from framing hidden orphans / hidden topics.
     if (!selectedId) {
+      lastFitSelRef.current = null // next selection should fit again
       // Selecting a topic clears selectedId in the same batch (WorkspaceView's
       // focusTopic); the topic effect then owns the camera, so step aside.
       if (focusedClusterId) {
@@ -490,20 +525,45 @@ export function GraphCanvas({
       if (!recenterArmedRef.current) return
       if (!prev) recenterArmedRef.current = false // the trailing widen-resize run
       const raf = requestAnimationFrame(() =>
-        fg.zoomToFit(500, 70, (n) => nodeVisible(n)),
+        fg.zoomToFit(500, OVERVIEW_PAD, (n) => nodeVisible(n)),
       )
       return () => cancelAnimationFrame(raf)
     }
 
     recenterArmedRef.current = false
+    // The detail panel overlays the canvas (no resize), so this fires once per
+    // selection; the guard also ignores any unrelated re-fire (window resize) for the
+    // same node so we never re-animate an already-framed view.
+    if (lastFitSelRef.current === selectedId) return
+    const node = graphData.nodes.find((n) => n.id === selectedId)
+    if (!node || node.x == null || node.y == null) return
+    lastFitSelRef.current = selectedId
+    const nx = node.x
+    const ny = node.y
+
+    // Put the clicked node at the centre of the VISIBLE canvas (left of the overlay
+    // panel) and zoom so its neighbours fit around it. ONE coordinated lerp: centerAt
+    // + zoom run over the same duration, so it reads as a single smooth move — not the
+    // zoom-then-pan-then-zoom that zoomToFit produced (it framed the node+neighbour
+    // bounding box, leaving the clicked node in a corner).
     const ids = setOf(selectedId)
-    const pts = graphData.nodes.filter(
-      (n) => ids.has(n.id) && n.x != null && n.y != null,
-    )
-    if (pts.length === 0) return
-    const cx = pts.reduce((s, n) => s + (n.x as number), 0) / pts.length
-    const cy = pts.reduce((s, n) => s + (n.y as number), 0) / pts.length
-    const raf = requestAnimationFrame(() => fg.centerAt(cx, cy, 400))
+    let radius = 0
+    for (const n of graphData.nodes) {
+      if (!ids.has(n.id) || n.x == null || n.y == null || !nodeVisible(n)) continue
+      radius = Math.max(radius, Math.hypot(n.x - nx, n.y - ny))
+    }
+    const PANEL_W = 320 // the w-80 overlay panel
+    const visHalf = Math.max(60, Math.min(size.w - PANEL_W, size.h) / 2 - 70)
+    // Cap the zoom-in so a node with tightly-clustered neighbours doesn't slam to a
+    // huge magnification; a node with no neighbours gets a gentle nudge in.
+    const MAX_SELECT_ZOOM = 2.2
+    const k =
+      radius > 0 ? Math.min(MAX_SELECT_ZOOM, Math.max(0.4, visHalf / radius)) : 1.5
+    const cx = nx + PANEL_W / 2 / k // bias right so the node lands in the visible area
+    const raf = requestAnimationFrame(() => {
+      fg.centerAt(cx, ny, 500)
+      fg.zoom(k, 500)
+    })
     return () => cancelAnimationFrame(raf)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, size.w, size.h])
@@ -529,7 +589,7 @@ export function GraphCanvas({
       if (!refitArmedRef.current) return
       if (!prev) refitArmedRef.current = false // the trailing widen-resize run
       const raf = requestAnimationFrame(() =>
-        fg.zoomToFit(600, 70, (n) => nodeVisible(n)),
+        fg.zoomToFit(600, OVERVIEW_PAD, (n) => nodeVisible(n)),
       )
       return () => cancelAnimationFrame(raf)
     }
@@ -839,7 +899,7 @@ export function GraphCanvas({
     if (!fg) return
     fg.zoom(fg.zoom() * factor, 200)
   }
-  const fitView = () => fgRef.current?.zoomToFit(400, 70)
+  const fitView = () => fgRef.current?.zoomToFit(400, OVERVIEW_PAD)
 
   const ann = menu ? annotationsByConceptId?.get(menu.node.id) : undefined
   // Visible row count in the node menu — drives the viewport clamp on its position.
@@ -892,11 +952,26 @@ export function GraphCanvas({
   return (
     <div
       ref={wrapRef}
-      className="relative h-full w-full overflow-hidden bg-white dark:bg-[#1e1e1e]"
-      style={{ cursor: hoverId ? 'pointer' : 'default' }}
+      // The library writes `cursor: grab` straight onto the inner <canvas>, so force
+      // it from here (important beats the inline style): default over empty canvas,
+      // pointer only when a node is hovered.
+      className={`relative h-full w-full overflow-hidden bg-white dark:bg-[#1e1e1e] ${
+        hoverId ? '[&_canvas]:cursor-pointer!' : '[&_canvas]:cursor-default!'
+      }`}
       // Suppress the browser menu so our node right-click menu is the only one.
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Canvas + labels stay hidden until the layout has settled and the first fit
+          has framed them (the spinner below covers the gap), then FADE in already in
+          place. The hide uses `invisible` (visibility:hidden) AS WELL AS opacity-0:
+          visibility never paints the element while hidden, so the settle can't flash
+          through; opacity + the always-present transition then does the fade-in once
+          revealed (visibility flips to visible the same instant opacity eases 0→1). */}
+      <div
+        className={`absolute inset-0 transition-opacity duration-500 ${
+          revealed ? 'visible opacity-100' : 'invisible opacity-0'
+        }`}
+      >
       {Comp && size.w > 0 && size.h > 0 && (
         <Comp
           ref={fgRef}
@@ -962,9 +1037,20 @@ export function GraphCanvas({
           // highlight fade is in flight we keep it live so the transition shows.
           autoPauseRedraw={!liveRedraw}
           onEngineStop={() => {
+            // First-paint gate: while still hidden, fit INSTANTLY (no animated zoom)
+            // and arm a short reveal timer. A reheat (forces/topology) fires another
+            // onEngineStop that re-arms it, so the graph is revealed only after it has
+            // gone quiet — never shown mid-settle, then faded in already framed.
+            if (!revealed) {
+              pendingFitRef.current = false
+              fgRef.current?.zoomToFit(0, OVERVIEW_PAD)
+              window.clearTimeout(revealTimerRef.current)
+              revealTimerRef.current = window.setTimeout(() => setRevealed(true), 250)
+              return
+            }
             if (!pendingFitRef.current) return
             pendingFitRef.current = false
-            fgRef.current?.zoomToFit(400, 70)
+            fgRef.current?.zoomToFit(400, OVERVIEW_PAD)
           }}
           linkColor={(l: FGLink) => linkColorOf(l)}
           linkWidth={(l: FGLink) => {
@@ -1057,6 +1143,18 @@ export function GraphCanvas({
 
       {/* HTML label overlay — native text, never blurred by the canvas zoom. */}
       <div ref={layerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
+      </div>
+
+      {/* First-paint cover: hold a spinner over the (hidden) canvas while the layout
+          settles, so there's no blank flash between the fetch and the reveal. */}
+      {!revealed && !thumbnail && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Loading your graph…
+          </div>
+        </div>
+      )}
 
       {/* Bottom-right zoom controls (Obsidian graph chrome). */}
       <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1">

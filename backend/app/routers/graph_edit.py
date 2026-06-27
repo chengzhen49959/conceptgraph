@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.extract import RelationType
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
 from app.models import Cluster, Concept, Edge, GraphAudit
@@ -95,11 +96,13 @@ class ConceptOut(BaseModel):
 class EdgeCreate(BaseModel):
     source_concept_id: uuid.UUID
     target_concept_id: uuid.UUID
-    relation: str = Field(min_length=1, max_length=200)
+    # Constrained to the fixed relation vocabulary so a manual edge can't reintroduce
+    # the free-text fragmentation the pipeline was redesigned to remove.
+    relation: RelationType
 
 
 class EdgeUpdate(BaseModel):
-    relation: str | None = Field(default=None, max_length=200)
+    relation: RelationType | None = None
     weight: int | None = Field(default=None, ge=1)
 
 

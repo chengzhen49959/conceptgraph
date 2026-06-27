@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   CircleAlert,
   CircleCheck,
+  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -93,6 +94,8 @@ function DocStatusIcon({ status }: { status: DocumentOut['status'] }) {
     return <CircleCheck className="size-3.5 shrink-0 text-emerald-500" />
   if (status === 'failed')
     return <CircleAlert className="size-3.5 shrink-0 text-destructive" />
+  if (status === 'duplicate')
+    return <Copy className="size-3.5 shrink-0 text-muted-foreground" />
   return (
     <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
   )
@@ -262,6 +265,10 @@ export function DocumentRow({
             {isProcessing(doc.status) ? (
               <span className="truncate text-[10px] leading-tight text-muted-foreground tabular-nums">
                 <DocProgress doc={doc} />
+              </span>
+            ) : doc.status === 'duplicate' ? (
+              <span className="truncate text-[10px] leading-tight text-muted-foreground">
+                Duplicate
               </span>
             ) : host ? (
               <span className="truncate text-[10px] leading-tight text-muted-foreground">

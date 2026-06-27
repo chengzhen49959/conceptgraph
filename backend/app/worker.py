@@ -9,22 +9,19 @@ two concurrent jobs for the same workspace can't create duplicate concept nodes
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import uuid
 from collections import Counter
-from itertools import combinations
 
 from arq.connections import RedisSettings
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 
 from app.ai import (
-    CandidateConcept,
-    ExtractedConcept,
+    SYMMETRIC_RELATIONS,
     embed_text,
     embed_texts,
-    extract_concepts,
-    select_core_concepts,
-    summarize_document,
+    extract_core,
 )
 from app.config import get_settings
 from app.db import _sessionmaker, get_engine
@@ -40,19 +37,24 @@ from app.services.concepts import (
 )
 from app.services.dedup_sweep import sweep_workspace
 from app.services.parse import parse_document
+from app.services.simhash import compute as compute_simhash
+from app.services.simhash import hamming as simhash_hamming
 from app.services.storage import get_object
-from app.services.thesis import grounds_in, thesis_anchor
 
 logger = logging.getLogger("ingest")
 
-# Per-document floor for emitting a co-occurrence edge. A co-occurrence's STRENGTH
-# is its weight, which accumulates across chunks AND documents via upsert, so the
-# signal is cross-corpus, not per-doc — thresholding per document would block that
-# accumulation (a pair co-mentioned once in each of five papers should reach
-# weight 5, not be dropped five times). So the floor is 1 (emit every co-mention)
-# and weight-aware Leiden lets incidental weight-1 links fade while repeated
-# co-mentions pull concepts together. A knob: raise it to sparsify per document.
-_MIN_COOCCUR = 1
+# Provenance re-link: whole-document extraction yields core concepts with no chunk
+# attached, so each is linked back to the chunks of ITS document whose embedding is
+# nearest — always its single best chunk (so the concept has provenance and the orphan
+# sweep spares it), plus any above this cosine floor, capped. Powers the passage panel
+# + node sizing without per-chunk extraction.
+_RELINK_MIN_SIM = 0.40
+_RELINK_MAX_CHUNKS = 5
+
+# Max bit distance between two 64-bit text SimHashes to treat them as the same
+# document. 3 is the standard near-duplicate cut for 64-bit SimHash (Manku/Google):
+# two renders of one paper sit at 0-3 bits, two different papers ~half the bits apart.
+_NEAR_DUP_MAX_HAMMING = 3
 
 # The hard ceiling on one ingest job (seconds). arq cancels the task at this bound,
 # so it is also the longest the merge lock can ever be held — the two MUST stay tied
@@ -123,6 +125,33 @@ def _ingest_lock(redis, document_id: uuid.UUID):
     return redis.lock(f"ingest-lock:{document_id}", timeout=_JOB_TIMEOUT)
 
 
+def _nearest_chunks(
+    concept_vec: list[float],
+    chunk_ids: list[uuid.UUID],
+    chunk_vectors: list[list[float]],
+) -> list[uuid.UUID]:
+    """Chunk ids of one document whose embedding is nearest the concept: its single
+    best chunk always (guarantees ≥1 mention, so the concept has provenance and the
+    orphan sweep spares it) plus any with cosine ≥ ``_RELINK_MIN_SIM``, capped at
+    ``_RELINK_MAX_CHUNKS``. Cosine in memory over this document's chunks only."""
+    import numpy as np
+
+    if not chunk_ids:
+        return []
+    cv = np.asarray(concept_vec, dtype=np.float32)
+    cm = np.asarray(chunk_vectors, dtype=np.float32)
+    cn = float(np.linalg.norm(cv)) or 1.0
+    rn = np.linalg.norm(cm, axis=1)
+    rn[rn == 0] = 1.0
+    sims = (cm @ cv) / (rn * cn)
+    order = np.argsort(sims)[::-1]
+    out = [chunk_ids[int(order[0])]]  # best always, even if below the floor
+    for idx in order[1:_RELINK_MAX_CHUNKS]:
+        if sims[int(idx)] >= _RELINK_MIN_SIM:
+            out.append(chunk_ids[int(idx)])
+    return out
+
+
 async def ingest_document(ctx: dict, document_id: str) -> None:
     """Process one uploaded document end to end."""
     doc_id = uuid.UUID(document_id)
@@ -158,14 +187,108 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
         # --- Parse (lock-free) -------------------------------------------------
         await _set_status(doc_id, "parsing")
         data = await get_object(s3_key)
+
+        # De-dup by file content: if this workspace already holds these exact bytes
+        # (a re-upload of the same paper), mark this row a duplicate and skip the
+        # pipeline so the paper contributes its concepts/edges exactly once — edge
+        # weight then means "papers that agree", not "times re-uploaded". Hashed here,
+        # after the fetch, because the browser PUTs straight to S3, so the bytes don't
+        # exist at create_document time. The hash filter ignores not-yet-hashed
+        # siblings (their content_hash is NULL), so a concurrent first-upload isn't
+        # falsely matched; the small residual race (two identical uploads hashing at
+        # once) degrades to two rows the dedup sweep can fold, never a corrupted graph.
+        content_hash = hashlib.sha256(data).hexdigest()
+        async with sessionmaker() as session:
+            original_id = (
+                await session.execute(
+                    select(Document.id)
+                    .where(
+                        Document.workspace_id == workspace_id,
+                        Document.content_hash == content_hash,
+                        Document.id != doc_id,
+                        Document.status.notin_(["failed", "duplicate"]),
+                    )
+                    .order_by(Document.created_at)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if original_id is not None:
+                await session.execute(
+                    update(Document)
+                    .where(Document.id == doc_id)
+                    .values(
+                        status="duplicate",
+                        content_hash=content_hash,
+                        duplicate_of=original_id,
+                        progress_current=None,
+                        progress_total=None,
+                    )
+                )
+                await session.commit()
+                logger.info("document %s duplicates %s; skipping ingest", doc_id, original_id)
+                return
+            await session.execute(
+                update(Document)
+                .where(Document.id == doc_id)
+                .values(content_hash=content_hash)
+            )
+            await session.commit()
+
         text = await asyncio.to_thread(parse_document, data, source_type)
 
-        # Persist the parsed source as the document's canonical text. Stored before
-        # the empty-chunk early-return below so even a chunk-less doc retains its text.
-        # (The pipeline chunks the in-memory copy; this column is the durable record.)
+        # Near-duplicate (lexical) de-dup: content_hash above catches byte-identical
+        # re-uploads; this catches the SAME paper from a different file (re-rendered PDF,
+        # arxiv v1 vs v2) whose bytes differ but whose text barely does. SimHash over
+        # normalized 5-word shingles — two renders land within a few bits, two different
+        # papers on one topic sit ~half the bits apart (the signal is exact phrase
+        # overlap, not meaning, so it can't false-merge BERT into RoBERTa the way an
+        # embedding cosine would). Runs after parse (needs the text) but before the
+        # expensive chunk/embed/extract, so a re-upload still skips the costly half.
+        simhash = await asyncio.to_thread(compute_simhash, text)
+        if simhash:
+            async with sessionmaker() as session:
+                candidates = (
+                    await session.execute(
+                        select(Document.id, Document.text_simhash)
+                        .where(
+                            Document.workspace_id == workspace_id,
+                            Document.id != doc_id,
+                            Document.text_simhash.isnot(None),
+                            Document.status.notin_(["failed", "duplicate"]),
+                        )
+                        .order_by(Document.created_at)
+                    )
+                ).all()
+            near_id = next(
+                (cid for cid, h in candidates if simhash_hamming(simhash, h) <= _NEAR_DUP_MAX_HAMMING),
+                None,
+            )
+            if near_id is not None:
+                async with sessionmaker() as session:
+                    await session.execute(
+                        update(Document)
+                        .where(Document.id == doc_id)
+                        .values(
+                            status="duplicate",
+                            text_simhash=simhash,
+                            duplicate_of=near_id,
+                            progress_current=None,
+                            progress_total=None,
+                        )
+                    )
+                    await session.commit()
+                logger.info("document %s near-duplicates %s (simhash); skipping ingest", doc_id, near_id)
+                return
+
+        # Persist the parsed source as the document's canonical text + its fingerprint.
+        # Stored before the empty-chunk early-return below so even a chunk-less doc
+        # retains its text. (The pipeline chunks the in-memory copy; this is the durable
+        # record.)
         async with sessionmaker() as session:
             await session.execute(
-                update(Document).where(Document.id == doc_id).values(body_markdown=text)
+                update(Document)
+                .where(Document.id == doc_id)
+                .values(body_markdown=text, text_simhash=simhash or None)
             )
             await session.commit()
 
@@ -193,165 +316,98 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
                 chunk_ids.append(row.id)
             await session.commit()
 
-        # --- Extract concepts + relations per chunk (lock-free, concurrent) ----
+        # --- Extract core concepts + typed relations (one whole-doc call) ------
+        # Precision-first: a single pass returns only the concepts the paper is about
+        # plus typed relations from the fixed 6-verb vocabulary — no per-chunk recall +
+        # core gate. Chunks (above) stay for RAG/search/provenance; they no longer
+        # drive extraction.
         await _set_status(doc_id, "extracting")
-        extractions = await asyncio.gather(
-            *(extract_concepts(c.content) for c in chunks)
-        )
+        core = await extract_core(text)
+        if not core.concepts:
+            await _set_status(doc_id, "done")
+            return
 
-        # Collect each distinct concept (by lowercased name): its canonical
-        # "name: description" form (identical to what the store keeps, so
-        # similarity is comparable at merge time), a representative object, and how
-        # many passages it appeared in (a salience hint for the core gate).
-        concept_text: dict[str, str] = {}
-        concept_first: dict[str, ExtractedConcept] = {}
-        freq: Counter[str] = Counter()
-        for ext in extractions:
-            for c in ext.concepts:
-                key = c.name.strip().lower()
-                if not key:
-                    continue
-                freq[key] += 1
-                if key not in concept_text:
-                    concept_text[key] = f"{c.name}: {c.description}"
-                    concept_first[key] = c
-        keys = list(concept_text)
-
-        # Aggregate the per-chunk summaries into one document summary and embed it
-        # (lock-free; it touches only this document's row). Stored in phase 2.
-        doc_summary = await summarize_document([e.summary for e in extractions])
+        doc_summary = core.summary
         summary_vec = await embed_text(doc_summary) if doc_summary else None
 
-        # Reduce-pass core gate: per-chunk extraction over-produces (every passage,
-        # incl. bibliography/related-work, yields nodes). This one document-level
-        # call keeps only the concepts the document substantively develops; the rest
-        # never enter the graph from this document. Lock-free, like the summary.
-        #
-        # Centrality is judged against the document's own framing (title + abstract +
-        # intro + conclusion), NOT the aggregate summary: the summary stitches every
-        # passage together, so it reflects incidental machinery (an optimizer, a
-        # normalization trick) as if it were the subject. The authors' framing names
-        # only the contribution. `thesis` is sliced positionally, not parsed. A
-        # concept named in that framing is grounded — a strong prior that it is core.
-        thesis = thesis_anchor(text, title)
-        core = await select_core_concepts(
-            thesis or doc_summary,  # framing is the arbiter; summary only if framing is empty
-            [
-                CandidateConcept(
-                    name=concept_first[k].name,
-                    description=concept_first[k].description,
-                    freq=freq[k],
-                    grounded=grounds_in(
-                        thesis, concept_first[k].name, *concept_first[k].aliases
-                    ),
-                )
-                for k in keys
-            ],
-        )
-
-        # Embed only the core concepts for the merge step (skips dropped ones).
-        core_keys = [k for k in keys if k in core]
-        concept_vectors = (
-            await embed_texts([concept_text[k] for k in core_keys]) if core_keys else []
+        # Embed each core concept ("name: description") — used to merge into the graph
+        # AND to re-link the concept to the chunks that discuss it (provenance).
+        core_keys = [c.name.strip().lower() for c in core.concepts]
+        core_by_key = {k: c for k, c in zip(core_keys, core.concepts)}
+        concept_vectors = await embed_texts(
+            [f"{c.name}: {c.description}" for c in core.concepts]
         )
         concept_vec = dict(zip(core_keys, concept_vectors))
 
-        # --- Merge/dedup + edges + cluster (per-workspace lock) ----------------
-        # Serialize the duplicate-prone section per workspace; different
-        # workspaces still run in parallel. Inside the lock we never hold a DB
-        # session across an LLM call — concept resolution and cluster labelling
-        # open their own short-lived sessions — so Aurora can't drop an idle
-        # connection mid-job.
+        # --- Merge/dedup + provenance + edges + cluster (per-workspace lock) ----
+        # Serialize the duplicate-prone section per workspace; different workspaces
+        # still run in parallel. Inside the lock we never hold a DB session across an
+        # LLM call — concept resolution and cluster labelling open their own short-lived
+        # sessions — so Aurora can't drop an idle connection mid-job.
         await _set_status(doc_id, "merging")
         async with _merge_lock(redis, workspace_id):
-            # Phase 1 — resolve every distinct concept to an id (the merge LLM runs
-            # here, with no DB session held). `cache` keys are lowercased names.
-            #
-            # Resolutions run CONCURRENTLY, bounded by settings.merge_concurrency.
-            # One-at-a-time they were ≈60 sequential merge-judge calls over the
-            # network — the dominant cost that blew the 600s job_timeout on a first
-            # document. Concurrency cuts that to a few waves. The cost: each
-            # resolution's nearest-neighbour query sees a racy, partially-built view of
-            # THIS batch, so two differently-named near-duplicates in one document can
-            # both create a node; same-NAME collisions still can't (keys are distinct
-            # here, and the (workspace_id, lower(name)) unique index + ON CONFLICT
-            # backstops a race). The manual dedup_sweep repairs the residual near-dups.
+            # Phase 1 — resolve every core concept to an id (the merge LLM runs here,
+            # with no DB session held), concurrently, bounded by merge_concurrency. The
+            # (workspace_id, lower(name)) unique index + ON CONFLICT backstops a race;
+            # the manual dedup_sweep repairs residual near-dups.
             cache: dict[str, uuid.UUID] = {}
-
-            # Distinct concepts that passed the core gate (first description wins).
-            to_resolve: dict[str, tuple[str, str | None]] = {}
-            for ext in extractions:
-                for c in ext.concepts:
-                    key = c.name.strip().lower()
-                    if not key or key not in core or key not in concept_vec:
-                        continue
-                    to_resolve.setdefault(key, (c.name, c.description))
-
-            total = len(to_resolve)
+            total = len(core_keys)
             await _set_progress(doc_id, 0, total)
             done = 0
             # ≈20 progress writes across the phase, not one DB round-trip per concept.
             tick = max(1, total // 20)
             sem = asyncio.Semaphore(get_settings().merge_concurrency)
 
-            async def _resolve_one(key: str, name: str, description: str | None) -> None:
+            async def _resolve_one(key: str) -> None:
                 nonlocal done
+                c = core_by_key[key]
                 async with sem:
                     await resolve_concept(
-                        sessionmaker, workspace_id, name, description, concept_vec[key], cache
+                        sessionmaker, workspace_id, c.name, c.description, concept_vec[key], cache
                     )
                 done += 1
                 if done % tick == 0 or done == total:
                     await _set_progress(doc_id, done, total)
 
-            await asyncio.gather(
-                *(_resolve_one(k, n, d) for k, (n, d) in to_resolve.items())
-            )
+            await asyncio.gather(*(_resolve_one(k) for k in core_keys))
 
-            # Aliases: collected after resolution, so `cache` maps every key to its id.
-            alias_pairs: list[tuple[uuid.UUID, str]] = []
-            for ext in extractions:
-                for c in ext.concepts:
-                    key = c.name.strip().lower()
-                    if key in cache:
-                        alias_pairs.extend((cache[key], a) for a in c.aliases)
+            # Aliases — cache now maps every key to its id.
+            alias_pairs: list[tuple[uuid.UUID, str]] = [
+                (cache[k], a)
+                for k in core_keys
+                if k in cache
+                for a in core_by_key[k].aliases
+            ]
 
-            # Phase 2 — provenance + edges. Aggregate everything in memory first (no
-            # awaits), then ONE bulk statement each for mentions, aliases, and edges.
-            # Per-row writes here were hundreds of sequential round-trips to Aurora —
-            # the ~4-minute stall the pipeline hit AFTER the merge had finished, which
-            # read to the user as "stuck again". Relation and co-occurrence weights are
-            # pre-summed per (source, target, relation, kind) so no key repeats within a
-            # multi-row INSERT (Postgres can't upsert the same conflict target twice in
-            # one statement).
-            edge_weights: Counter[tuple[uuid.UUID, uuid.UUID, str, str]] = Counter()
+            # Phase 2 — provenance (re-link) + typed edges. Whole-doc extraction leaves
+            # a concept with no chunk attached, so link each resolved concept to the
+            # nearest chunks of THIS document by embedding (its best chunk always, +
+            # any above the floor). Edges come from the typed relations only — no
+            # co-occurrence; contrasts_with is symmetric, stored on the sorted id pair.
+            # Weights pre-summed per (source, target, type, kind) so no key repeats in a
+            # multi-row upsert; they accumulate across documents into a consensus count.
             mentions: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = set()
-            for chunk_id, ext in zip(chunk_ids, extractions):
-                ids_here: set[uuid.UUID] = set()
-                for c in ext.concepts:
-                    cid = cache.get(c.name.strip().lower())
-                    if cid is not None:
-                        mentions.add((cid, chunk_id, doc_id))
-                        ids_here.add(cid)
-                # Concepts sharing a chunk co-occur; tally each unordered pair
-                # (sorted → a<b canonical) across chunks for the cluster graph.
-                for a, b in combinations(sorted(ids_here), 2):
-                    edge_weights[(a, b, "", "cooccur")] += 1
-                for rel in ext.relations:
-                    sk = rel.source.strip().lower()
-                    tk = rel.target.strip().lower()
-                    if sk in cache and tk in cache:
-                        edge_weights[(cache[sk], cache[tk], rel.relation, "relation")] += 1
-            # Co-occurrence edges below the noise floor are dropped; displayed relations
-            # (kind='relation') are always kept. kind='cooccur' edges stay hidden from
-            # the graph view — they only densify the cluster graph.
-            edges = {
-                k: w for k, w in edge_weights.items() if k[3] != "cooccur" or w >= _MIN_COOCCUR
-            }
+            for key in core_keys:
+                cid = cache.get(key)
+                if cid is None:
+                    continue
+                for chunk_id in _nearest_chunks(concept_vec[key], chunk_ids, chunk_vectors):
+                    mentions.add((cid, chunk_id, doc_id))
+
+            edge_weights: Counter[tuple[uuid.UUID, uuid.UUID, str, str]] = Counter()
+            for rel in core.relations:
+                s = cache.get(rel.source.strip().lower())
+                t = cache.get(rel.target.strip().lower())
+                if s is None or t is None or s == t:
+                    continue
+                if rel.type in SYMMETRIC_RELATIONS and s > t:
+                    s, t = t, s  # canonical ordering for an undirected pair
+                edge_weights[(s, t, rel.type, "relation")] += 1
+
             async with sessionmaker() as session:
                 await add_aliases(session, alias_pairs)
                 await add_mentions(session, mentions)
-                await upsert_edges(session, workspace_id, edges)
+                await upsert_edges(session, workspace_id, dict(edge_weights))
                 if doc_summary:
                     await session.execute(
                         update(Document)
