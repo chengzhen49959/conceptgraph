@@ -7,14 +7,11 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Globe,
   LoaderCircle,
   Trash2,
 } from 'lucide-react'
-import {
-  type DocumentOut,
-  DOC_STATUS_LABEL,
-  isProcessing,
-} from '@/lib/api'
+import { type DocumentOut, DOC_STATUS_LABEL, isProcessing } from '@/lib/api'
 import {
   downloadDocumentSource,
   openDocumentSource,
@@ -24,11 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { cn } from '@/lib/utils'
-
-// Width (px) of one revealed swipe action. The content slides left by
-// actions × this, exposing the action panel that slid in from the right.
-const ACTION_W = 56
+import { type RowAction, RowContextMenu, RowOverflow } from './RowMenu'
 
 /** Rough ETA for the merge phase, derived from how fast `current` is climbing.
  *
@@ -105,78 +98,53 @@ function DocStatusIcon({ status }: { status: DocumentOut['status'] }) {
   )
 }
 
-/** One revealed swipe action — full row height, icon over a tiny label. Not
- *  tabbable while the row is closed (it sits off-screen). */
-function SwipeAction({
-  icon,
-  label,
-  onClick,
-  reachable,
-  className,
-}: {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  reachable: boolean
-  className?: string
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      tabIndex={reachable ? 0 : -1}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      style={{ width: ACTION_W }}
-      className={cn(
-        'flex h-full flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors [&>svg]:size-4',
-        className,
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  )
+/** Hostname of a web clip's origin, for the row's secondary line (null for a file
+ *  upload or an unparseable URL). */
+function clipHost(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
 }
 
+// Shared position for the hover-revealed ⋯ button: top-right, fading in on row
+// hover and staying put while its menu is open.
+const OVERFLOW_POS =
+  'absolute top-1.5 right-1 opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100'
+
 /**
- * A document row in the sidebar. Three shapes, by mode:
+ * A document row in the sidebar. Four shapes, by mode:
+ *  - **collapsed (icon rail)** — just an icon; a click opens the source.
  *  - **select mode** — leading checkbox; clicking the row toggles its selection.
  *  - **failed** — the import error plus a one-click delete (re-upload to retry).
- *  - **normal** — a WeChat-style swipe: clicking the row slides it left to reveal
- *    [Download] [Open] (file uploads) or just [Open] (web clips), instead of
- *    opening directly — so opening vs. saving is an explicit, visible choice.
- *
- * `swipeOpen` / `onSwipeOpenChange` are owned by the parent so only one row is
- * open at a time (and an outside click can close it).
+ *  - **normal** — clicking the row **opens** the source (file inline / clip origin);
+ *    Download + Delete live on the hover `⋯` menu and the right-click menu, so the
+ *    row follows the same one-model operation scheme as topics and concepts (no
+ *    bespoke swipe). Batch delete stays on the section header's Select toggle.
  */
 export function DocumentRow({
   doc,
   selectMode,
   selected,
   onToggleSelect,
-  swipeOpen,
-  onSwipeOpenChange,
-  onDeleteFailed,
+  onDelete,
 }: {
   doc: DocumentOut
   selectMode: boolean
   selected: boolean
   onToggleSelect: () => void
-  swipeOpen: boolean
-  onSwipeOpenChange: (open: boolean) => void
-  onDeleteFailed: () => void
+  /** Delete this one document (the menu's Delete; batch delete is the header toggle). */
+  onDelete: () => void
 }) {
   const { state } = useSidebar()
   // A web clip has no uploaded file — open links to its origin, no download.
   const canDownload = doc.status !== 'failed' && !doc.source_url
   const isFailed = doc.status === 'failed'
 
-  // On the collapsed icon rail there's no room to swipe or select — a click just
-  // opens the source, the one useful action at that size.
+  // On the collapsed icon rail there's no room for a menu — a click just opens the
+  // source, the one useful action at that size.
   if (state === 'collapsed') {
     return (
       <SidebarMenuItem>
@@ -216,108 +184,102 @@ export function DocumentRow({
     )
   }
 
+  // One action declaration, surfaced by both the right-click menu and the ⋯ button.
+  const actions: RowAction[] = isFailed
+    ? [{ icon: Trash2, label: 'Delete', destructive: true, onClick: onDelete }]
+    : [
+        {
+          icon: ExternalLink,
+          label: 'Open',
+          onClick: () => void openDocumentSource(doc),
+        },
+        ...(canDownload
+          ? [
+              {
+                icon: Download,
+                label: 'Download',
+                onClick: () => void downloadDocumentSource(doc),
+              },
+            ]
+          : []),
+        {
+          icon: Trash2,
+          label: 'Delete',
+          destructive: true,
+          separatorBefore: true,
+          onClick: onDelete,
+        },
+      ]
+
   if (isFailed) {
     return (
       <SidebarMenuItem className="group/row">
-        <SidebarMenuButton
-          className="h-auto min-h-8 items-center pr-8"
-          tooltip={doc.title}
-          title={doc.error ?? 'Import failed'}
-        >
-          <FileText className="text-muted-foreground" />
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">{doc.title}</span>
-            <span className="flex min-w-0 flex-col text-[10px] leading-tight text-destructive">
-              <span className="truncate" title={doc.error ?? 'Import failed'}>
-                {doc.error ?? 'Import failed'}
+        <RowContextMenu actions={actions}>
+          <SidebarMenuButton
+            className="h-auto min-h-8 items-center pr-8"
+            tooltip={doc.title}
+            title={doc.error ?? 'Import failed'}
+          >
+            <CircleAlert className="text-destructive" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{doc.title}</span>
+              <span className="flex min-w-0 flex-col text-[10px] leading-tight text-destructive">
+                <span className="truncate" title={doc.error ?? 'Import failed'}>
+                  {doc.error ?? 'Import failed'}
+                </span>
+                {/* Ingest can't resume in place (the original file isn't kept), so
+                    the only recovery is delete + re-upload — spell it out. */}
+                <span className="font-medium">Delete &amp; re-upload to retry</span>
               </span>
-              {/* Ingest can't resume in place (the original file isn't kept), so
-                  the only recovery is delete + re-upload — spell it out. */}
-              <span className="font-medium">Delete &amp; re-upload to retry</span>
             </span>
-          </span>
-        </SidebarMenuButton>
-        <button
-          type="button"
-          title="Delete this document — then re-upload to try again"
-          aria-label={`Delete ${doc.title} and re-upload`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteFailed()
-          }}
-          className="absolute top-1.5 right-1 z-10 flex aspect-square w-5 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+          </SidebarMenuButton>
+        </RowContextMenu>
+        {/* A failed import needs an obvious action, so its ⋯ stays visible. */}
+        <RowOverflow
+          actions={actions}
+          label={`Actions for ${doc.title}`}
+          className="absolute top-1.5 right-1 text-destructive"
+        />
       </SidebarMenuItem>
     )
   }
 
-  // Normal: swipe to reveal actions. The panel sits off the right edge (clipped by
-  // `overflow-hidden`) and slides in as the content slides out by the same width.
-  const panelW = (canDownload ? 2 : 1) * ACTION_W
+  // Normal: click the row to Open; Download / Delete via ⋯ or right-click.
+  const Icon = doc.source_url ? Globe : FileText
+  const host = clipHost(doc.source_url)
   return (
-    <SidebarMenuItem
-      data-doc-row={doc.id}
-      className="relative overflow-hidden"
-    >
-      <div
-        className="transition-transform duration-200 ease-out"
-        style={{ transform: swipeOpen ? `translateX(-${panelW}px)` : undefined }}
-      >
+    <SidebarMenuItem className="group/row">
+      <RowContextMenu actions={actions}>
         <SidebarMenuButton
-          className="h-auto min-h-8 items-center"
+          className="h-auto min-h-8 items-center pr-8"
           tooltip={doc.title}
-          onClick={() => onSwipeOpenChange(!swipeOpen)}
+          onClick={() => void openDocumentSource(doc)}
           title={doc.title}
         >
-          <FileText className="text-muted-foreground" />
+          <Icon className="text-muted-foreground" />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate">{doc.title}</span>
-            {isProcessing(doc.status) && (
+            {isProcessing(doc.status) ? (
               <span className="truncate text-[10px] leading-tight text-muted-foreground tabular-nums">
                 <DocProgress doc={doc} />
               </span>
-            )}
+            ) : host ? (
+              <span className="truncate text-[10px] leading-tight text-muted-foreground">
+                {host}
+              </span>
+            ) : null}
           </span>
-          <DocStatusIcon status={doc.status} />
+          {/* Status glyph yields to the ⋯ on hover (same slot). */}
+          <span className="transition-opacity group-hover/row:opacity-0">
+            <DocStatusIcon status={doc.status} />
+          </span>
         </SidebarMenuButton>
-      </div>
-
-      <div
-        aria-hidden={!swipeOpen}
-        className={cn(
-          'absolute inset-y-0 right-0 z-10 flex transition-transform duration-200 ease-out',
-          !swipeOpen && 'pointer-events-none',
-        )}
-        style={{
-          width: panelW,
-          transform: swipeOpen ? 'translateX(0)' : 'translateX(100%)',
-        }}
-      >
-        {canDownload && (
-          <SwipeAction
-            icon={<Download />}
-            label="Download"
-            reachable={swipeOpen}
-            onClick={() => {
-              onSwipeOpenChange(false)
-              void downloadDocumentSource(doc)
-            }}
-            className="bg-sidebar-accent text-sidebar-accent-foreground hover:brightness-95"
-          />
-        )}
-        <SwipeAction
-          icon={<ExternalLink />}
-          label="Open"
-          reachable={swipeOpen}
-          onClick={() => {
-            onSwipeOpenChange(false)
-            void openDocumentSource(doc)
-          }}
-          className="bg-primary text-primary-foreground hover:brightness-110"
-        />
-      </div>
+      </RowContextMenu>
+      <RowOverflow
+        actions={actions}
+        label={`Actions for ${doc.title}`}
+        className={OVERFLOW_POS}
+      />
     </SidebarMenuItem>
   )
 }

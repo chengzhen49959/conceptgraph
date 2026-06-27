@@ -51,6 +51,12 @@ export function WorkspaceView({
 }) {
   const [docs, setDocs] = useState<DocumentOut[]>([])
   const [graph, setGraph] = useState<GraphData>(EMPTY)
+  // First-fetch state for the canvas: a returning user's graph arrives async, so
+  // gate the "empty / upload a document" copy on these — otherwise it flashes as if
+  // their work were gone (and a failed fetch would leave it permanently). `graph`
+  // starts EMPTY, so loadingGraph starts true and clears once the first fetch settles.
+  const [loadingGraph, setLoadingGraph] = useState(true)
+  const [graphError, setGraphError] = useState(false)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -116,7 +122,9 @@ export function WorkspaceView({
   const refreshGraph = useCallback(async () => {
     try {
       setGraph(await getGraph(workspaceId))
+      setGraphError(false)
     } catch (e) {
+      setGraphError(true)
       toast.error((e as Error).message)
     }
   }, [workspaceId])
@@ -176,7 +184,9 @@ export function WorkspaceView({
   // Re-fetch the graph whenever another document finishes (and once on mount).
   const doneCount = docs.filter((d) => d.status === 'done').length
   useEffect(() => {
-    refreshGraph()
+    // Clear the first-load flag once the fetch settles. Done here (not inside
+    // refreshGraph) so the 6s shared-workspace poll never re-triggers a loading state.
+    refreshGraph().finally(() => setLoadingGraph(false))
   }, [doneCount, refreshGraph])
 
   // Surface failures as they land.
@@ -422,6 +432,9 @@ export function WorkspaceView({
     <GraphCanvas
       data={graph}
       settings={settings}
+      loading={loadingGraph}
+      error={graphError}
+      onRetry={refreshGraph}
       selectedId={selectedId}
       onSelectId={selectConcept}
       highlightClusterId={hoverTopicId}
@@ -443,13 +456,18 @@ export function WorkspaceView({
         graph={graph}
         onPickFiles={handleFiles}
         busy={busy}
-        loading={loadingDocs}
+        loadingDocs={loadingDocs}
+        loadingGraph={loadingGraph}
+        graphError={graphError}
         workspaceName={workspaceName}
         workspaces={workspaces}
         currentId={workspaceId}
         email={email}
         onOpenSearch={() => setSearchOpen(true)}
         onSelectConcept={selectConcept}
+        selectedConceptId={selectedId}
+        onFocusTopic={focusTopic}
+        focusedTopicId={focusedTopicId}
         onHoverTopic={setHoverTopicId}
         onHoverConcept={setHoverConceptId}
         onDeleteDocuments={handleDeleteDocuments}

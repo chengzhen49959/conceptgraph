@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Settings,
+  SquareArrowOutUpRight,
   Trash2,
   X,
 } from 'lucide-react'
@@ -29,6 +30,7 @@ import {
   SidebarGroup,
   SidebarGroupAction,
   SidebarHeader,
+  SidebarInput,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -37,6 +39,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  SidebarSeparator,
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { clusterColorMap } from '@/lib/cluster-color'
@@ -47,6 +50,7 @@ import {
 } from '@/lib/graph-settings'
 import { ColorPicker } from './ColorSwatch'
 import { DocumentRow } from './DocumentRow'
+import { type RowAction, RowContextMenu, RowOverflow } from './RowMenu'
 import { GraphControls } from './GraphControls'
 import { SectionLabel } from './SidebarSection'
 import { NavUser } from './NavUser'
@@ -56,7 +60,11 @@ const ACCEPT = '.pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain
 
 // Right-aligned count inside a menu button; collapses away on the icon rail.
 const ROW_COUNT =
-  'shrink-0 text-xs tabular-nums text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden'
+  'shrink-0 text-xs tabular-nums text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden'
+
+/** The three things the sidebar can batch-select for deletion. Exactly one kind is
+ *  ever active at a time, so a checked id can never be stranded between kinds. */
+type SelectKind = 'documents' | 'clusters' | 'concepts'
 
 /** All-or-none select toggle: full selection → empty, otherwise → all. */
 const selectAllOrNone = (cur: Set<string>, allIds: string[]) =>
@@ -70,6 +78,11 @@ const invertSelection = (cur: Set<string>, allIds: string[]) =>
  * Batch-action toolbar that takes over a section header while that section is in
  * select mode. Two rows: clear · count · delete, then select-all / invert. Hidden
  * on the icon rail. Delete is disabled until at least one row is checked.
+ *
+ * `modes` adds a segmented control between the two rows for a section that can
+ * select more than one kind (Topics → whole topics vs individual concepts); each
+ * segment switch clears the selection so the kinds never mix. Omit it for
+ * single-kind sections (Documents).
  */
 function SelectionToolbar({
   count,
@@ -79,6 +92,9 @@ function SelectionToolbar({
   onInvert,
   onClear,
   onDelete,
+  modes,
+  activeMode,
+  onModeChange,
 }: {
   count: number
   allSelected: boolean
@@ -87,6 +103,9 @@ function SelectionToolbar({
   onInvert: () => void
   onClear: () => void
   onDelete: () => void
+  modes?: { value: string; label: string }[]
+  activeMode?: string
+  onModeChange?: (value: string) => void
 }) {
   return (
     <div className="pb-1 pt-1 group-data-[collapsible=icon]:hidden">
@@ -112,6 +131,26 @@ function SelectionToolbar({
           <Trash2 className="size-4" />
         </button>
       </div>
+      {modes && (
+        <div className="mt-1 flex items-center gap-0.5 rounded-md bg-sidebar-accent/40 p-0.5">
+          {modes.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => onModeChange?.(m.value)}
+              aria-pressed={activeMode === m.value}
+              className={cn(
+                'flex-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                activeMode === m.value
+                  ? 'bg-sidebar text-sidebar-foreground shadow-sm'
+                  : 'text-sidebar-foreground/60 hover:text-sidebar-foreground',
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-1 flex items-center gap-1">
         <button
           type="button"
@@ -159,13 +198,18 @@ export function NavSidebar({
   graph,
   onPickFiles,
   busy,
-  loading,
+  loadingDocs,
+  loadingGraph,
+  graphError,
   workspaceName,
   workspaces,
   currentId,
   email,
   onOpenSearch,
   onSelectConcept,
+  selectedConceptId,
+  onFocusTopic,
+  focusedTopicId,
   onHoverTopic,
   onHoverConcept,
   onDeleteDocuments,
@@ -178,13 +222,27 @@ export function NavSidebar({
   graph: GraphData
   onPickFiles: (files: File[]) => void
   busy: boolean
-  loading: boolean
+  /** First-fetch flags from the host: the documents list and the graph load on
+   *  separate async paths, so each section gates its own skeleton/empty copy.
+   *  `graphError` is a failed graph fetch — the Topics section must not fall back
+   *  to the "upload a document" prompt, which would read as data loss. */
+  loadingDocs: boolean
+  loadingGraph: boolean
+  graphError: boolean
   workspaceName: string
   workspaces: WorkspaceCard[]
   currentId: string | undefined
   email: string | null
   onOpenSearch: () => void
   onSelectConcept: (id: string) => void
+  /** The concept selected on the canvas (or anywhere) — the sidebar reveals it:
+   *  expands its topic, scrolls to its row, and highlights it (two-way sync). */
+  selectedConceptId: string | null
+  /** Click a topic row → focus that topic on the canvas (persistent highlight +
+   *  zoom-to-fit), symmetric with clicking a concept. The chevron alone expands. */
+  onFocusTopic: (id: string) => void
+  /** Topic currently focused on the canvas — drives the topic row's active state. */
+  focusedTopicId: string | null
   onHoverTopic: (id: string | null) => void
   onHoverConcept: (id: string | null) => void
   onDeleteDocuments: (ids: string[]) => Promise<void>
@@ -198,26 +256,27 @@ export function NavSidebar({
   const [docsOpen, setDocsOpen] = useState(true)
   const [clustersOpen, setClustersOpen] = useState(true)
 
-  // Multi-select for batch delete — entered per section via a header toggle, then
-  // every row in that section shows a checkbox (no hover-reveal). `pending` opens
-  // the shared confirmation dialog.
-  const [docsSelectMode, setDocsSelectMode] = useState(false)
-  const [topicsSelectMode, setTopicsSelectMode] = useState(false)
-  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
-  const [selectedClusters, setSelectedClusters] = useState<Set<string>>(new Set())
-  // Individual concepts checked across expanded topics (cherry-pick a few to delete
-  // instead of dropping a whole topic). Lives in the same Topics select mode.
-  const [selectedConcepts, setSelectedConcepts] = useState<Set<string>>(new Set())
-  const [pending, setPending] = useState<'documents' | 'clusters' | 'concepts' | null>(
-    null,
-  )
+  // One batch-select machine for all three kinds. `selecting` names the active kind
+  // (null = not selecting); `selected` holds that kind's checked ids. Because a single
+  // kind is ever active, a checked id can never be stranded between two sets — the
+  // Topics section simply switches `selecting` between 'clusters' and 'concepts' via
+  // its toolbar segmented control, clearing the selection on each switch.
+  const [selecting, setSelecting] = useState<SelectKind | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  const selectingDocs = selecting === 'documents'
+  const selectingClusters = selecting === 'clusters'
+  const selectingConcepts = selecting === 'concepts'
+  // The Topics section is "in select mode" for either of its two kinds.
+  const topicsSelect = selectingClusters || selectingConcepts
 
   // Which topics are expanded to show their concept list inline.
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  // The document row whose swipe actions are revealed (one at a time, WeChat-style).
-  const [openDocId, setOpenDocId] = useState<string | null>(null)
+  // Inline filter for the Topics list — type to narrow a long topic list by label.
+  const [topicFilter, setTopicFilter] = useState('')
 
   const toggleIn = (set: Set<string>, id: string) => {
     const next = new Set(set)
@@ -226,72 +285,47 @@ export function NavSidebar({
     return next
   }
 
-  // Enter / leave the two select modes. Entering opens the section (so the rows
-  // being selected are visible) and closes any open document swipe.
-  const enterDocsSelect = () => {
-    setOpenDocId(null)
-    setDocsOpen(true)
-    setDocsSelectMode(true)
+  // Enter a section's select mode (Topics defaults to whole-topic 'clusters'), open
+  // that section so the rows being selected are visible, and close any open swipe.
+  const enterSelect = (kind: SelectKind) => {
+    setSelected(new Set())
+    if (kind === 'documents') setDocsOpen(true)
+    else setClustersOpen(true)
+    setSelecting(kind)
   }
-  const exitDocsSelect = () => {
-    setSelectedDocs(new Set())
-    setDocsSelectMode(false)
+  const exitSelect = () => {
+    setSelected(new Set())
+    setSelecting(null)
   }
-  const enterTopicsSelect = () => {
-    setClustersOpen(true)
-    setTopicsSelectMode(true)
-  }
-  const exitTopicsSelect = () => {
-    setSelectedClusters(new Set())
-    setSelectedConcepts(new Set())
-    setTopicsSelectMode(false)
+  // Topics toolbar segmented control: switch which kind the Topics section selects,
+  // clearing the current selection so whole-topic and per-concept picks never mix.
+  const switchTopicsKind = (kind: 'clusters' | 'concepts') => {
+    setSelected(new Set())
+    setSelecting(kind)
   }
 
-  // Close the open swipe on an outside click or Escape — feels like WeChat, where
-  // tapping away dismisses the revealed actions.
+  // Two-way sync: when a concept is selected anywhere (canvas, search, panel link),
+  // reveal it in the sidebar — expand its topic, then scroll its row into view. The
+  // state write + scroll run in a rAF (not the effect body) so this never fires a
+  // synchronous render cascade, and the scroll waits a frame for the row to mount.
   useEffect(() => {
-    if (!openDocId) return
-    const onPointerDown = (e: PointerEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t && !t.closest(`[data-doc-row="${openDocId}"]`)) setOpenDocId(null)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpenDocId(null)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKey)
+    if (!selectedConceptId) return
+    const cid = graph.nodes.find((n) => n.id === selectedConceptId)?.cluster_id
+    if (!cid) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      setExpanded((s) => (s.has(cid) ? s : new Set(s).add(cid)))
+      raf2 = requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-concept-row="${CSS.escape(selectedConceptId)}"]`)
+          ?.scrollIntoView({ block: 'nearest' })
+      })
+    })
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKey)
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
     }
-  }, [openDocId])
-
-  const confirmDelete = async () => {
-    if (!pending) return
-    const source =
-      pending === 'documents'
-        ? selectedDocs
-        : pending === 'clusters'
-          ? selectedClusters
-          : selectedConcepts
-    const ids = [...source]
-    setDeleting(true)
-    try {
-      if (pending === 'documents') {
-        await onDeleteDocuments(ids)
-        exitDocsSelect()
-      } else if (pending === 'clusters') {
-        await onDeleteClusters(ids)
-        exitTopicsSelect()
-      } else {
-        await onDeleteConcepts(ids)
-        exitTopicsSelect()
-      }
-      setPending(null)
-    } finally {
-      setDeleting(false)
-    }
-  }
+  }, [selectedConceptId, graph.nodes])
 
   // Hidden input shared by the "New document" row and the section "+" action.
   const fileRef = useRef<HTMLInputElement>(null)
@@ -329,6 +363,14 @@ export function NavSidebar({
       .sort((a, b) => b.count - a.count)
   }, [graph.clusters, conceptsByCluster])
 
+  // The Topics list narrowed by the inline filter (label substring, case-insensitive).
+  // Select-all / invert still act over the full clusterRows, not this filtered view.
+  const filteredClusterRows = useMemo(() => {
+    const q = topicFilter.trim().toLowerCase()
+    if (!q) return clusterRows
+    return clusterRows.filter((c) => (c.label ?? '').toLowerCase().includes(q))
+  }, [clusterRows, topicFilter])
+
   // A topic's colour (palette default + per-topic override) and its hidden state,
   // both derived from settings — the sidebar Topics rows are the single home for
   // colour and visibility. The canvas derives the same colour from the same inputs,
@@ -353,6 +395,79 @@ export function NavSidebar({
   const onPickTopicColor = useCallback(
     (id: string, color: string) => onChange({ topicColors: { [id]: color } }),
     [onChange],
+  )
+
+  // One descriptor per selectable kind: the id universe its select-all / invert act
+  // over, the delete call, and the confirm-dialog copy. The active kind drives the
+  // single SelectionToolbar and single ConfirmDialog below, so adding/altering a kind
+  // is one table entry rather than a change spread across modes, sets, and switches.
+  const descriptors = useMemo(
+    () => ({
+      documents: {
+        allIds: documents.map((d) => d.id),
+        onDelete: onDeleteDocuments,
+        dialogTitle: (n: number) => `Delete ${n} document${n > 1 ? 's' : ''}?`,
+        dialogDescription:
+          'Their chunks, and any concepts only they mention, are removed from the graph. Concepts cited by other documents are kept. This cannot be undone.',
+      },
+      clusters: {
+        allIds: clusterRows.map((c) => c.id),
+        onDelete: onDeleteClusters,
+        dialogTitle: (n: number) => `Delete ${n} topic${n > 1 ? 's' : ''}?`,
+        dialogDescription:
+          'Every concept in these topics and their relationships are removed from the graph. The source documents are kept. This cannot be undone.',
+      },
+      concepts: {
+        allIds: allConceptIds,
+        onDelete: onDeleteConcepts,
+        dialogTitle: (n: number) => `Delete ${n} concept${n > 1 ? 's' : ''}?`,
+        dialogDescription:
+          'These concepts and their relationships are removed from the graph. Their source documents are kept. This cannot be undone.',
+      },
+    }),
+    [
+      documents,
+      clusterRows,
+      allConceptIds,
+      onDeleteDocuments,
+      onDeleteClusters,
+      onDeleteConcepts,
+    ],
+  )
+
+  const active = selecting ? descriptors[selecting] : null
+  const allIds = active?.allIds ?? []
+
+  const confirmDelete = async () => {
+    if (!active) return
+    const ids = [...selected]
+    setDeleting(true)
+    try {
+      await active.onDelete(ids)
+      setConfirmOpen(false)
+      exitSelect()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // The single selection toolbar, parameterised by the active kind. `modeProps` adds
+  // the Topics-only segmented control; omit it for Documents.
+  const renderToolbar = (modeProps?: {
+    modes: { value: string; label: string }[]
+    activeMode: string
+    onModeChange: (value: string) => void
+  }) => (
+    <SelectionToolbar
+      count={selected.size}
+      allSelected={allIds.length > 0 && selected.size === allIds.length}
+      deleteDisabled={selected.size === 0}
+      onSelectAll={() => setSelected((s) => selectAllOrNone(s, allIds))}
+      onInvert={() => setSelected((s) => invertSelection(s, allIds))}
+      onClear={exitSelect}
+      onDelete={() => setConfirmOpen(true)}
+      {...modeProps}
+    />
   )
 
   return (
@@ -392,56 +507,15 @@ export function NavSidebar({
                 <span className="flex-1">{busy ? 'Uploading…' : 'New document'}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              {/* Graph settings (Display / Forces / Local graph) behind a gear —
-                  opened on demand so the sidebar stays short. */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <SidebarMenuButton title="Graph settings">
-                    <Settings className="text-muted-foreground" />
-                    <span className="flex-1">Graph settings</span>
-                  </SidebarMenuButton>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="right"
-                  align="start"
-                  className="max-h-[70vh] w-64 overflow-y-auto"
-                >
-                  <GraphControls settings={settings} onChange={onChange} />
-                </PopoverContent>
-              </Popover>
-            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
 
+        <SidebarSeparator />
+
         {/* Documents */}
         <SidebarGroup className="group/section">
-          {docsSelectMode ? (
-            <SelectionToolbar
-              count={selectedDocs.size}
-              allSelected={
-                documents.length > 0 && selectedDocs.size === documents.length
-              }
-              deleteDisabled={selectedDocs.size === 0}
-              onSelectAll={() =>
-                setSelectedDocs((s) =>
-                  selectAllOrNone(
-                    s,
-                    documents.map((d) => d.id),
-                  ),
-                )
-              }
-              onInvert={() =>
-                setSelectedDocs((s) =>
-                  invertSelection(
-                    s,
-                    documents.map((d) => d.id),
-                  ),
-                )
-              }
-              onClear={exitDocsSelect}
-              onDelete={() => setPending('documents')}
-            />
+          {selectingDocs ? (
+            renderToolbar()
           ) : (
             <>
               <SectionLabel
@@ -452,7 +526,7 @@ export function NavSidebar({
               />
               {documents.length > 0 && (
                 <SelectToggle
-                  onClick={enterDocsSelect}
+                  onClick={() => enterSelect('documents')}
                   label="Select documents"
                   className="right-9"
                 />
@@ -464,7 +538,7 @@ export function NavSidebar({
           )}
 
           {docsOpen &&
-            (loading ? (
+            (loadingDocs ? (
               <div className="space-y-1 px-2 py-1">
                 {[0, 1, 2].map((i) => (
                   <Skeleton key={i} className="h-8 w-full" />
@@ -475,75 +549,36 @@ export function NavSidebar({
                 No documents yet.
               </p>
             ) : (
-              <SidebarMenu>
+              <SidebarMenu className="max-h-[34vh] overflow-y-auto">
                 {documents.map((doc) => (
                   <DocumentRow
                     key={doc.id}
                     doc={doc}
-                    selectMode={docsSelectMode}
-                    selected={selectedDocs.has(doc.id)}
+                    selectMode={selectingDocs}
+                    selected={selected.has(doc.id)}
                     onToggleSelect={() =>
-                      setSelectedDocs((s) => toggleIn(s, doc.id))
+                      setSelected((s) => toggleIn(s, doc.id))
                     }
-                    swipeOpen={openDocId === doc.id}
-                    onSwipeOpenChange={(open) =>
-                      setOpenDocId(open ? doc.id : null)
-                    }
-                    onDeleteFailed={() => void onDeleteDocuments([doc.id])}
+                    onDelete={() => void onDeleteDocuments([doc.id])}
                   />
                 ))}
               </SidebarMenu>
             ))}
         </SidebarGroup>
 
-        {/* Topics — auto-generated concept groups; expand to list their concepts. */}
-        <SidebarGroup className="group/section">
-          {topicsSelectMode ? (
-            selectedConcepts.size > 0 && selectedClusters.size === 0 ? (
-              <SelectionToolbar
-                count={selectedConcepts.size}
-                allSelected={
-                  allConceptIds.length > 0 &&
-                  selectedConcepts.size === allConceptIds.length
-                }
-                deleteDisabled={selectedConcepts.size === 0}
-                onSelectAll={() =>
-                  setSelectedConcepts((s) => selectAllOrNone(s, allConceptIds))
-                }
-                onInvert={() =>
-                  setSelectedConcepts((s) => invertSelection(s, allConceptIds))
-                }
-                onClear={exitTopicsSelect}
-                onDelete={() => setPending('concepts')}
-              />
-            ) : (
-              <SelectionToolbar
-                count={selectedClusters.size}
-                allSelected={
-                  clusterRows.length > 0 &&
-                  selectedClusters.size === clusterRows.length
-                }
-                deleteDisabled={selectedClusters.size === 0}
-                onSelectAll={() =>
-                  setSelectedClusters((s) =>
-                    selectAllOrNone(
-                      s,
-                      clusterRows.map((c) => c.id),
-                    ),
-                  )
-                }
-                onInvert={() =>
-                  setSelectedClusters((s) =>
-                    invertSelection(
-                      s,
-                      clusterRows.map((c) => c.id),
-                    ),
-                  )
-                }
-                onClear={exitTopicsSelect}
-                onDelete={() => setPending('clusters')}
-              />
-            )
+        {/* Topics — auto-generated concept groups; expand to list their concepts.
+            Hidden on the icon rail — a column of bare colour dots is meaningless. */}
+        <SidebarGroup className="group/section group-data-[collapsible=icon]:hidden">
+          {topicsSelect ? (
+            renderToolbar({
+              modes: [
+                { value: 'clusters', label: 'Topics' },
+                { value: 'concepts', label: 'Concepts' },
+              ],
+              activeMode: selecting ?? 'clusters',
+              onModeChange: (v) =>
+                switchTopicsKind(v as 'clusters' | 'concepts'),
+            })
           ) : (
             <>
               <SectionLabel
@@ -554,7 +589,7 @@ export function NavSidebar({
               />
               {clusterRows.length > 0 && (
                 <SelectToggle
-                  onClick={enterTopicsSelect}
+                  onClick={() => enterSelect('clusters')}
                   label="Select topics"
                 />
               )}
@@ -562,181 +597,302 @@ export function NavSidebar({
           )}
 
           {clustersOpen &&
-            (clusterRows.length === 0 ? (
+            (loadingGraph ? (
+              // Graph arrives async; show skeletons (not the empty prompt) so a
+              // returning user's topics aren't briefly reported as gone.
+              <div className="space-y-1 px-2 py-1">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
+              </div>
+            ) : graphError ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground">
+                Couldn’t load topics.
+              </p>
+            ) : clusterRows.length === 0 ? (
               <p className="px-2 py-2 text-xs text-muted-foreground">
                 No topics yet — upload a document.
               </p>
             ) : (
-              <SidebarMenu>
-                {clusterRows.map((cl) => {
-                  const isOpen = expanded.has(cl.id)
-                  const concepts = conceptsByCluster.get(cl.id) ?? []
-                  const hidden = hiddenTopics.includes(cl.id)
-                  const checked = selectedClusters.has(cl.id)
-                  return (
-                    <SidebarMenuItem key={cl.id} className="group/row">
-                      <SidebarMenuButton
-                        tooltip={cl.label ?? 'Unlabeled'}
-                        isActive={topicsSelectMode && checked}
-                        // Select mode: the row toggles its checkbox. Otherwise it
-                        // expands the topic's concept list.
-                        onClick={() =>
-                          topicsSelectMode
-                            ? setSelectedClusters((s) => toggleIn(s, cl.id))
-                            : setExpanded((s) => toggleIn(s, cl.id))
-                        }
-                        onMouseEnter={() => {
-                          if (!topicsSelectMode) onHoverTopic(cl.id)
-                        }}
-                        onMouseLeave={() => onHoverTopic(null)}
-                        title={cl.label ?? 'Unlabeled'}
-                        className={cn(hidden && !topicsSelectMode && 'opacity-50')}
-                      >
-                        {topicsSelectMode ? (
-                          <span className="flex size-4 shrink-0 items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              readOnly
-                              aria-label={`Select ${cl.label ?? 'topic'}`}
-                              className="pointer-events-none size-3.5 accent-primary"
-                            />
-                          </span>
-                        ) : (
-                          // Colour dot doubles as the topic's colour picker. It's a
-                          // span (not a button) because the row is already a button;
-                          // stopPropagation keeps a colour click from expanding it.
-                          <ColorPicker
-                            color={topicColor(cl.id)}
-                            onPick={(color) => onPickTopicColor(cl.id, color)}
-                          >
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              aria-label="Change topic colour"
-                              title="Change topic colour"
-                              onClick={(e) => e.stopPropagation()}
-                              className="size-2.5 shrink-0 cursor-pointer rounded-full transition-transform hover:scale-125"
-                              style={{ background: topicColor(cl.id) }}
-                            />
-                          </ColorPicker>
-                        )}
-                        <span className="flex-1 truncate">
-                          {cl.label ?? 'Unlabeled'}
-                        </span>
-                        {/* Show/hide this topic on the canvas (syncs the Topics
-                            filter). Hidden while selecting to keep the row calm. */}
-                        {!topicsSelectMode && (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            aria-label={
-                              hidden ? 'Show topic on canvas' : 'Hide topic on canvas'
-                            }
-                            title={hidden ? 'Show on canvas' : 'Hide on canvas'}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onToggleTopicHidden(cl.id)
-                            }}
-                            className={cn(
-                              'flex size-4 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 transition-opacity hover:text-sidebar-foreground',
-                              'opacity-0 group-hover/row:opacity-100 group-data-[collapsible=icon]:hidden',
-                              hidden && 'opacity-100',
-                            )}
-                          >
-                            {hidden ? (
-                              <EyeOff className="size-3.5" />
-                            ) : (
-                              <Eye className="size-3.5" />
-                            )}
-                          </span>
-                        )}
-                        <span className={ROW_COUNT}>{cl.count}</span>
-                      </SidebarMenuButton>
+              <>
+                {/* Inline filter — shown once the list is long enough to matter. */}
+                {!topicsSelect && clusterRows.length > 8 && (
+                  <div className="px-1 pb-1">
+                    <SidebarInput
+                      value={topicFilter}
+                      onChange={(e) => setTopicFilter(e.target.value)}
+                      placeholder="Filter topics…"
+                      aria-label="Filter topics"
+                    />
+                  </div>
+                )}
+                {filteredClusterRows.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    No topics match “{topicFilter}”.
+                  </p>
+                ) : (
+                  <SidebarMenu>
+                    {filteredClusterRows.map((cl) => {
+                      const isOpen = expanded.has(cl.id)
+                      const concepts = conceptsByCluster.get(cl.id) ?? []
+                      const hidden = hiddenTopics.includes(cl.id)
+                      const checked = selected.has(cl.id)
+                      // One action set for the topic's ⋯ menu and right-click menu.
+                      const topicActions: RowAction[] = [
+                        {
+                          icon: hidden ? Eye : EyeOff,
+                          label: hidden ? 'Show on canvas' : 'Hide on canvas',
+                          onClick: () => onToggleTopicHidden(cl.id),
+                        },
+                        {
+                          icon: Trash2,
+                          label: 'Delete topic',
+                          destructive: true,
+                          separatorBefore: true,
+                          onClick: () => void onDeleteClusters([cl.id]),
+                        },
+                      ]
+                      return (
+                        <SidebarMenuItem key={cl.id} className="group/row">
+                          <RowContextMenu actions={topicsSelect ? [] : topicActions}>
+                            <SidebarMenuButton
+                              tooltip={cl.label ?? 'Unlabeled'}
+                              isActive={
+                                (selectingClusters && checked) ||
+                                (!topicsSelect && focusedTopicId === cl.id)
+                              }
+                              // Row click: normal → focus this topic on the canvas
+                              // (the chevron alone expands); selecting topics → toggle
+                              // its checkbox; selecting concepts → expand to show them.
+                              onClick={() => {
+                                if (selectingClusters)
+                                  setSelected((s) => toggleIn(s, cl.id))
+                                else if (selectingConcepts)
+                                  setExpanded((s) => toggleIn(s, cl.id))
+                                else onFocusTopic(cl.id)
+                              }}
+                              onMouseEnter={() => {
+                                if (!topicsSelect) onHoverTopic(cl.id)
+                              }}
+                              onMouseLeave={() => onHoverTopic(null)}
+                              title={cl.label ?? 'Unlabeled'}
+                              className={cn(hidden && !topicsSelect && 'opacity-50')}
+                            >
+                              {selectingClusters ? (
+                                <span className="flex size-4 shrink-0 items-center justify-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    readOnly
+                                    aria-label={`Select ${cl.label ?? 'topic'}`}
+                                    className="pointer-events-none size-3.5 accent-primary"
+                                  />
+                                </span>
+                              ) : !topicsSelect ? (
+                                // Colour dot doubles as the topic's colour picker. A
+                                // span (the row is already a button); stopPropagation
+                                // keeps a colour click from focusing the topic.
+                                <ColorPicker
+                                  color={topicColor(cl.id)}
+                                  onPick={(color) => onPickTopicColor(cl.id, color)}
+                                >
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label="Change topic colour"
+                                    title="Change topic colour"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="size-3 shrink-0 cursor-pointer rounded-full ring-1 ring-inset ring-black/10 transition-transform hover:scale-125 dark:ring-white/20"
+                                    style={{ background: topicColor(cl.id) }}
+                                  />
+                                </ColorPicker>
+                              ) : null}
+                              <span className="flex-1 truncate">
+                                {cl.label ?? 'Unlabeled'}
+                              </span>
+                              {/* Count yields to the ⋯ on hover AND while its menu is
+                                  open — else, with the cursor on the open menu (row no
+                                  longer hovered), the count reappears and overlaps the
+                                  still-shown ⋯ in the shared right slot. */}
+                              <span
+                                className={cn(
+                                  ROW_COUNT,
+                                  !topicsSelect &&
+                                    'transition-opacity group-hover/row:opacity-0 group-has-data-[state=open]/row:opacity-0',
+                                )}
+                              >
+                                {cl.count}
+                              </span>
+                            </SidebarMenuButton>
+                          </RowContextMenu>
 
-                      {/* Expand/collapse stays on the chevron so it works in both
-                          normal and select mode (where row-click toggles selection). */}
-                      <SidebarMenuAction
-                        onClick={() => setExpanded((s) => toggleIn(s, cl.id))}
-                        aria-label={isOpen ? 'Collapse topic' : 'Expand topic'}
-                      >
-                        <ChevronRight
-                          className={cn(
-                            'transition-transform',
-                            isOpen && 'rotate-90',
+                          {/* Expand/collapse on the chevron (works in select mode too,
+                              where the row click toggles selection). */}
+                          <SidebarMenuAction
+                            onClick={() => setExpanded((s) => toggleIn(s, cl.id))}
+                            aria-label={isOpen ? 'Collapse topic' : 'Expand topic'}
+                          >
+                            <ChevronRight
+                              className={cn(
+                                'transition-transform',
+                                isOpen && 'rotate-90',
+                              )}
+                            />
+                          </SidebarMenuAction>
+
+                          {/* Hover ⋯ — hide/show + delete, mirroring the right-click
+                              menu. Sits just left of the chevron. */}
+                          {!topicsSelect && (
+                            <RowOverflow
+                              actions={topicActions}
+                              label={`Actions for ${cl.label ?? 'topic'}`}
+                              className="absolute top-1.5 right-7 opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
+                            />
                           )}
-                        />
-                      </SidebarMenuAction>
 
-                      {isOpen && (
-                        <SidebarMenuSub>
-                          {concepts.length === 0 ? (
-                            <li className="px-2 py-1 text-xs text-muted-foreground">
-                              No concepts.
-                            </li>
-                          ) : (
-                            concepts.map((con) => {
-                              const cchecked = selectedConcepts.has(con.id)
-                              return (
-                                <SidebarMenuSubItem key={con.id}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={topicsSelectMode && cchecked}
-                                    className={cn(topicsSelectMode && 'pl-7')}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        topicsSelectMode
-                                          ? setSelectedConcepts((s) =>
-                                              toggleIn(s, con.id),
-                                            )
-                                          : onSelectConcept(con.id)
-                                      }
-                                      onMouseEnter={() => {
-                                        if (!topicsSelectMode)
-                                          onHoverConcept(con.id)
-                                      }}
-                                      onMouseLeave={() => onHoverConcept(null)}
-                                      title={con.name}
-                                      className="w-full cursor-pointer"
+                          {isOpen && (
+                            // Left rail tinted in the topic's colour so an expanded run
+                            // of concepts reads as belonging to it (matches the canvas).
+                            <SidebarMenuSub style={{ borderColor: topicColor(cl.id) }}>
+                              {concepts.length === 0 ? (
+                                <li className="px-2 py-1 text-xs text-muted-foreground">
+                                  No concepts.
+                                </li>
+                              ) : (
+                                concepts.map((con) => {
+                                  const cchecked = selected.has(con.id)
+                                  const conceptActions: RowAction[] = [
+                                    {
+                                      icon: SquareArrowOutUpRight,
+                                      label: 'Open',
+                                      onClick: () => onSelectConcept(con.id),
+                                    },
+                                    {
+                                      icon: Trash2,
+                                      label: 'Delete concept',
+                                      destructive: true,
+                                      separatorBefore: true,
+                                      onClick: () =>
+                                        void onDeleteConcepts([con.id]),
+                                    },
+                                  ]
+                                  return (
+                                    <SidebarMenuSubItem
+                                      key={con.id}
+                                      data-concept-row={con.id}
                                     >
-                                      <span className="flex-1 truncate">
-                                        {con.name}
-                                      </span>
-                                      <span className={ROW_COUNT}>
-                                        {con.mentions}
-                                      </span>
-                                    </button>
-                                  </SidebarMenuSubButton>
-                                  {/* Per-concept checkbox, shown only in select mode.
-                                      Pointer-events-none — the row button toggles it,
-                                      so a click anywhere on the row selects. Absolute
-                                      in the gutter the row reserves via `pl-7`. */}
-                                  {topicsSelectMode && (
-                                    <input
-                                      type="checkbox"
-                                      checked={cchecked}
-                                      readOnly
-                                      aria-label={`Select ${con.name}`}
-                                      className="pointer-events-none absolute left-2 top-1/2 z-10 size-3 -translate-y-1/2 accent-primary"
-                                    />
-                                  )}
-                                </SidebarMenuSubItem>
-                              )
-                            })
+                                      <RowContextMenu
+                                        actions={
+                                          selectingConcepts ? [] : conceptActions
+                                        }
+                                      >
+                                        <SidebarMenuSubButton
+                                          asChild
+                                          isActive={
+                                            (selectingConcepts && cchecked) ||
+                                            (!topicsSelect &&
+                                              selectedConceptId === con.id)
+                                          }
+                                          className={cn(selectingConcepts && 'pl-7')}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              selectingConcepts
+                                                ? setSelected((s) =>
+                                                    toggleIn(s, con.id),
+                                                  )
+                                                : onSelectConcept(con.id)
+                                            }
+                                            onMouseEnter={() => {
+                                              if (!selectingConcepts)
+                                                onHoverConcept(con.id)
+                                            }}
+                                            onMouseLeave={() => onHoverConcept(null)}
+                                            title={con.name}
+                                            className="w-full cursor-pointer"
+                                          >
+                                            {/* Dot in the topic's colour — the same
+                                                colour this concept's canvas node wears. */}
+                                            {!selectingConcepts && (
+                                              <span
+                                                aria-hidden
+                                                className="size-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10 dark:ring-white/20"
+                                                style={{ background: topicColor(cl.id) }}
+                                              />
+                                            )}
+                                            <span className="flex-1 truncate">
+                                              {con.name}
+                                            </span>
+                                            <span
+                                              className={cn(
+                                                ROW_COUNT,
+                                                !selectingConcepts &&
+                                                  'transition-opacity group-hover/menu-sub-item:opacity-0 group-has-data-[state=open]/menu-sub-item:opacity-0',
+                                              )}
+                                            >
+                                              {con.mentions}
+                                            </span>
+                                          </button>
+                                        </SidebarMenuSubButton>
+                                      </RowContextMenu>
+                                      {/* Per-concept checkbox while selecting concepts;
+                                          pointer-events-none — the row toggles it. */}
+                                      {selectingConcepts && (
+                                        <input
+                                          type="checkbox"
+                                          checked={cchecked}
+                                          readOnly
+                                          aria-label={`Select ${con.name}`}
+                                          className="pointer-events-none absolute left-2 top-1/2 z-10 size-3 -translate-y-1/2 accent-primary"
+                                        />
+                                      )}
+                                      {/* Hover ⋯ — open / delete this concept. */}
+                                      {!selectingConcepts && (
+                                        <RowOverflow
+                                          actions={conceptActions}
+                                          label={`Actions for ${con.name}`}
+                                          className="absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity group-hover/menu-sub-item:opacity-100 data-[state=open]:opacity-100"
+                                        />
+                                      )}
+                                    </SidebarMenuSubItem>
+                                  )
+                                })
+                              )}
+                            </SidebarMenuSub>
                           )}
-                        </SidebarMenuSub>
-                      )}
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                )}
+              </>
             ))}
         </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>
+        {/* Graph settings (Filters / Display / Forces / Local graph) — secondary
+            chrome, tucked by the user menu instead of competing with Search / New. */}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <Popover>
+              <PopoverTrigger asChild>
+                <SidebarMenuButton title="Graph settings" tooltip="Graph settings">
+                  <Settings className="text-muted-foreground" />
+                  <span className="flex-1">Graph settings</span>
+                </SidebarMenuButton>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="end"
+                className="max-h-[70vh] w-64 overflow-y-auto"
+              >
+                <GraphControls settings={settings} onChange={onChange} />
+              </PopoverContent>
+            </Popover>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <NavUser email={email} />
       </SidebarFooter>
 
@@ -754,25 +910,13 @@ export function NavSidebar({
       />
 
       <ConfirmDialog
-        open={pending !== null}
-        onOpenChange={(o) => !o && setPending(null)}
+        open={confirmOpen}
+        onOpenChange={(o) => !o && setConfirmOpen(false)}
         destructive
         loading={deleting}
         confirmLabel={deleting ? 'Deleting…' : 'Delete'}
-        title={
-          pending === 'clusters'
-            ? `Delete ${selectedClusters.size} topic${selectedClusters.size > 1 ? 's' : ''}?`
-            : pending === 'concepts'
-              ? `Delete ${selectedConcepts.size} concept${selectedConcepts.size > 1 ? 's' : ''}?`
-              : `Delete ${selectedDocs.size} document${selectedDocs.size > 1 ? 's' : ''}?`
-        }
-        description={
-          pending === 'clusters'
-            ? 'Every concept in these topics and their relationships are removed from the graph. The source documents are kept. This cannot be undone.'
-            : pending === 'concepts'
-              ? 'These concepts and their relationships are removed from the graph. Their source documents are kept. This cannot be undone.'
-              : 'Their chunks, and any concepts only they mention, are removed from the graph. Concepts cited by other documents are kept. This cannot be undone.'
-        }
+        title={active ? active.dialogTitle(selected.size) : ''}
+        description={active ? active.dialogDescription : ''}
         onConfirm={confirmDelete}
       />
 

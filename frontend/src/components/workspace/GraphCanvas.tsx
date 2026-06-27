@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
 import { forceCollide, forceX, forceY } from 'd3-force'
-import { Flag, Highlighter, Maximize2, SquareArrowOutUpRight, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
+import { Flag, Highlighter, Loader2, Maximize2, RefreshCw, SquareArrowOutUpRight, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { GraphData, GraphNode } from '@/lib/api'
 import { type GraphSettings, topicColorOf } from '@/lib/graph-settings'
 import { clusterColorMap } from '@/lib/cluster-color'
@@ -84,6 +84,15 @@ const endpointId = (e: string | FGNode) => (typeof e === 'object' ? e.id : e)
 
 // Approximate label height in CSS px (font ~11px, line-height:1).
 const LABEL_H = 14
+// Off-screen slack (CSS px) for the label viewport cull: a label whose dot sits
+// this far outside the canvas can never be read, so it's dropped before the
+// de-overlap pass. Generous enough (≈ a wide label's half-width) that nothing pops
+// at the edges as you pan.
+const VP_MARGIN = 140
+// Spatial-hash cell size (CSS px) for label de-overlap. Each placed label box is
+// stored in every grid cell it spans; a new box only tests against boxes in the
+// cells it spans → O(n) amortised instead of O(n²) against every placed box.
+const GRID_CELL = 64
 
 // A label's screen-space rectangle (CSS px) used only for de-overlap. `m` is the
 // breathing room so labels never kiss.
@@ -113,6 +122,9 @@ export function GraphCanvas({
   onDeleteConcept,
   restrictToIds,
   thumbnail = false,
+  loading = false,
+  error = false,
+  onRetry,
 }: {
   data: GraphData
   /** The Obsidian-style control-panel state (filters, groups, display, forces). */
@@ -126,6 +138,15 @@ export function GraphCanvas({
   /** Render as the small reading-view thumbnail: keep the camera auto-fit to the
    *  current content (which changes when the scope toggles local↔global). */
   thumbnail?: boolean
+  /** The first graph fetch is still in flight — show a loading state instead of the
+   *  "empty, upload a document" copy so a returning user with a populated graph isn't
+   *  falsely told their work is gone while the request resolves. */
+  loading?: boolean
+  /** The graph fetch failed (and we have nothing cached to show) — show an error +
+   *  retry instead of the misleading empty-state copy. */
+  error?: boolean
+  /** Re-run the graph fetch (wired to the error-state Retry button). */
+  onRetry?: () => void
   /** Topic the sidebar is hovering — light all its member concepts. */
   highlightClusterId: string | null
   /** Topic focused from search — like a node selection: lights its whole cluster
@@ -161,6 +182,17 @@ export function GraphCanvas({
   // True while a node is being dragged — syncLabels skips its O(n²) de-overlap
   // pass during the drag to keep it smooth.
   const draggingRef = useRef(false)
+  // Selecting a node pans its 1-hop neighbourhood to the visible centre (keeping the
+  // current zoom); deselecting zooms back OUT to the whole-graph overview. Both must
+  // re-fire across the ResizeObserver-driven canvas widen/shrink when the detail panel
+  // mounts/unmounts (~320px), so a one-shot `armed` flag fires the restore on the
+  // (de)select edge AND the trailing widen, then disarms — a later unrelated resize
+  // then leaves a manually-adjusted camera alone. The topic path is the analogue:
+  // focus zoomToFits the cluster, unfocus zooms back to the overview.
+  const prevSelectedRef = useRef<string | null>(null)
+  const recenterArmedRef = useRef(false)
+  const prevFocusedRef = useRef<string | null>(null)
+  const refitArmedRef = useRef(false)
 
   const [Comp, setComp] = useState<ForceGraphComponent | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -431,12 +463,39 @@ export function GraphCanvas({
   }, [highlightIds])
 
   // Pan the selected node + its 1-hop neighbours to the canvas centre, keeping the
-  // current zoom. Re-runs when the canvas resizes (the right panel mounting shrinks
-  // it), so the cluster ends up centred in the *visible* area, not behind the panel.
+  // current zoom (so a manual zoom-in then stays centred on it). Deselecting does NOT
+  // just pan back — it zooms back OUT to the whole-graph overview (the reported "放大
+  // 后点空白要缩小回中": clicking empty space should pop the view back out, not stay
+  // zoomed in). Re-runs when the canvas resizes (the right panel mounting shrinks it /
+  // unmounting widens it), so the framing lands in the *visible* area, not behind the
+  // panel. Camera-only (pan or zoom, no force change) ⇒ no reheat.
   useEffect(() => {
-    if (!selectedId) return
     const fg = fgRef.current
     if (!fg) return
+    const prev = prevSelectedRef.current
+    prevSelectedRef.current = selectedId
+
+    // Deselect: zoom out + recentre the whole visible graph. Fires on the deselect
+    // edge AND the ResizeObserver widen that trails the panel unmount, then disarms —
+    // so a later unrelated resize leaves a manually-adjusted camera alone. The visible
+    // filter keeps it from framing hidden orphans / hidden topics.
+    if (!selectedId) {
+      // Selecting a topic clears selectedId in the same batch (WorkspaceView's
+      // focusTopic); the topic effect then owns the camera, so step aside.
+      if (focusedClusterId) {
+        recenterArmedRef.current = false
+        return
+      }
+      if (prev) recenterArmedRef.current = true // deselect edge
+      if (!recenterArmedRef.current) return
+      if (!prev) recenterArmedRef.current = false // the trailing widen-resize run
+      const raf = requestAnimationFrame(() =>
+        fg.zoomToFit(500, 70, (n) => nodeVisible(n)),
+      )
+      return () => cancelAnimationFrame(raf)
+    }
+
+    recenterArmedRef.current = false
     const ids = setOf(selectedId)
     const pts = graphData.nodes.filter(
       (n) => ids.has(n.id) && n.x != null && n.y != null,
@@ -449,13 +508,33 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, size.w, size.h])
 
-  // The topic analogue of selecting a node: zoom-and-pan to frame the whole
-  // focused cluster. zoomToFit (not centerAt) so the camera also scales — the
-  // cluster fills the view regardless of how spread out it is.
+  // The topic analogue of selecting a node: zoom-and-pan to frame the whole focused
+  // cluster (zoomToFit so the camera also scales). Unfocusing zooms back to the
+  // whole-graph overview the same way — symmetric with a node deselect. Same one-shot
+  // arm-across-the-widen as the node path. Camera-only ⇒ no reheat.
   useEffect(() => {
-    if (!focusedClusterId) return
     const fg = fgRef.current
     if (!fg) return
+    const prev = prevFocusedRef.current
+    prevFocusedRef.current = focusedClusterId
+
+    if (!focusedClusterId) {
+      // Selecting a node clears focusedClusterId in the same batch (WorkspaceView's
+      // selectConcept); the node effect then owns the camera — don't fight it.
+      if (selectedId) {
+        refitArmedRef.current = false
+        return
+      }
+      if (prev) refitArmedRef.current = true // unfocus edge
+      if (!refitArmedRef.current) return
+      if (!prev) refitArmedRef.current = false // the trailing widen-resize run
+      const raf = requestAnimationFrame(() =>
+        fg.zoomToFit(600, 70, (n) => nodeVisible(n)),
+      )
+      return () => cancelAnimationFrame(raf)
+    }
+
+    refitArmedRef.current = false
     const ready = graphData.nodes.some(
       (n) => n.cluster_id === focusedClusterId && n.x != null,
     )
@@ -523,8 +602,11 @@ export function GraphCanvas({
       posRef.current.set(v.n.id, { x: v.n.x as number, y: v.n.y as number })
 
     // Cull to the labels that will actually show, THEN de-overlap only those — this
-    // bounds the O(n²) placement pass to visible labels (a handful when zoomed out
-    // or hovering), which is what keeps a big graph smooth while the sim runs hot.
+    // bounds the placement pass to on-screen visible labels (a handful when zoomed in,
+    // and never more than fill the canvas), which is what keeps a big graph smooth
+    // while the sim runs hot. The viewport cull below is the load-bearing bound: at a
+    // low text-fade threshold the speck cull barely fires, so without it nearly every
+    // node would reach the de-overlap pass.
     type Cand = {
       v: Label
       sp: { x: number; y: number }
@@ -552,13 +634,20 @@ export function GraphCanvas({
         v.el.style.display = 'none'
         continue
       }
-      shown.push({
-        v,
-        sp: fg.graph2ScreenCoords(n.x as number, n.y as number),
-        screenR,
-        show,
-        focus,
-      })
+      // Viewport cull: a label whose dot sits well outside the canvas can never be
+      // read. Dropping it here bounds the de-overlap pass to the on-screen set — the
+      // real "only visible labels" guarantee the placement loop assumes.
+      const sp = fg.graph2ScreenCoords(n.x as number, n.y as number)
+      if (
+        sp.x < -VP_MARGIN ||
+        sp.x > size.w + VP_MARGIN ||
+        sp.y < -VP_MARGIN ||
+        sp.y > size.h + VP_MARGIN
+      ) {
+        v.el.style.display = 'none'
+        continue
+      }
+      shown.push({ v, sp, screenR, show, focus })
     }
 
     // Focused first, then biggest — important labels claim space first.
@@ -573,7 +662,37 @@ export function GraphCanvas({
     // placed is simply dropped (the hard "two names never overlap" rule). Sorted
     // focused-first then biggest-first, so the important names win their slot and the
     // crowded small ones fall away — exactly how Obsidian thins labels as you zoom.
-    const placed: Box[] = []
+    // Spatial hash of placed boxes: a box is filed under every GRID_CELL it spans
+    // (expanded by the overlap margin so near-touching boxes in adjacent cells still
+    // share one), so a collision test only compares against boxes in the cells the
+    // new box spans — O(n) amortised instead of scanning every placed box. Two boxes
+    // that overlap necessarily share a spanned cell, so the "two names never overlap"
+    // rule still holds exactly, regardless of label width.
+    const grid = new Map<string, Box[]>()
+    const cellsOf = (b: Box): string[] => {
+      const gx0 = Math.floor((b.x0 - 3) / GRID_CELL)
+      const gx1 = Math.floor((b.x1 + 3) / GRID_CELL)
+      const gy0 = Math.floor((b.y0 - 3) / GRID_CELL)
+      const gy1 = Math.floor((b.y1 + 3) / GRID_CELL)
+      const keys: string[] = []
+      for (let gx = gx0; gx <= gx1; gx++)
+        for (let gy = gy0; gy <= gy1; gy++) keys.push(`${gx},${gy}`)
+      return keys
+    }
+    const collides = (b: Box): boolean => {
+      for (const key of cellsOf(b)) {
+        const bucket = grid.get(key)
+        if (bucket) for (const p of bucket) if (overlaps(p, b)) return true
+      }
+      return false
+    }
+    const place = (b: Box) => {
+      for (const key of cellsOf(b)) {
+        const bucket = grid.get(key)
+        if (bucket) bucket.push(b)
+        else grid.set(key, [b])
+      }
+    }
     for (const { v, sp, screenR, show, focus } of shown) {
       // Insurance: a zero-width box never registers an overlap, so a mismeasured
       // label would render on top of its neighbour. Re-measure once if it slipped
@@ -590,14 +709,15 @@ export function GraphCanvas({
       const box: Box = { x0: lx - hw, y0: ly - hh, x1: lx + hw, y1: ly + hh }
 
       // Focused (selected/hovered) labels are never dropped — they claim their slot
-      // first. While dragging the sim is hot, so skip the O(n²) collision scan and let
-      // every label sit below its dot until the drag settles. Otherwise a resting
-      // label that would touch one already placed is hidden rather than overlapped.
-      if (!focus && !dragging && placed.some((p) => overlaps(p, box))) {
+      // first (but are still filed into the grid so resting labels avoid them). While
+      // dragging the sim is hot, so skip the collision test and let every label sit
+      // below its dot until the drag settles. Otherwise a resting label that would
+      // touch one already placed is hidden rather than overlapped.
+      if (!focus && !dragging && collides(box)) {
         v.el.style.display = 'none'
         continue
       }
-      placed.push(box)
+      place(box)
 
       v.el.style.display = 'block'
       v.el.style.color = show ? c.labelHi : c.label
@@ -722,16 +842,49 @@ export function GraphCanvas({
   const fitView = () => fgRef.current?.zoomToFit(400, 70)
 
   const ann = menu ? annotationsByConceptId?.get(menu.node.id) : undefined
+  // Visible row count in the node menu — drives the viewport clamp on its position.
+  const menuItemCount =
+    1 +
+    (canEdit && onToggleHighlight ? 1 : 0) +
+    (canEdit && onToggleFlag ? 1 : 0) +
+    (canEdit && onDeleteConcept ? 1 : 0)
 
+  // Nothing to draw yet. Distinguish the three reasons so a returning user is never
+  // falsely told their graph is empty: still fetching → spinner; fetch failed →
+  // error + retry; genuinely zero nodes → the upload prompt. (`loading`/`error` only
+  // matter on the first fetch — once nodes exist the canvas renders below regardless.)
   if (data.nodes.length === 0) {
     return (
       <div
         ref={wrapRef}
         className="flex h-full w-full items-center justify-center bg-white dark:bg-[#1e1e1e]"
       >
-        <p className="text-sm text-muted-foreground">
-          Your graph is empty — upload a document to grow it.
-        </p>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Loading your graph…
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-muted-foreground">
+              Couldn’t load your graph.
+            </p>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground shadow-sm transition-colors hover:bg-accent"
+              >
+                <RefreshCw className="size-3.5" />
+                Retry
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Your graph is empty — upload a document to grow it.
+          </p>
+        )}
       </div>
     )
   }
@@ -796,6 +949,7 @@ export function GraphCanvas({
             n.fy = undefined
           }}
           onBackgroundClick={() => {
+            // Deselect → the select effect zooms the view back out to the overview.
             setMenu(null)
             onSelectId(null)
           }}
@@ -930,7 +1084,16 @@ export function GraphCanvas({
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
           <div
             className="fixed z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
-            style={{ left: menu.x, top: menu.y }}
+            // Clamp into the viewport so a right-click near the right / bottom edge
+            // isn't clipped off-screen with its items unreachable. Estimate the box
+            // (min-w-40 ≈ 180px; ~34px per row + 8px padding) and keep an 8px margin.
+            style={{
+              left: Math.max(8, Math.min(menu.x, window.innerWidth - 188)),
+              top: Math.max(
+                8,
+                Math.min(menu.y, window.innerHeight - 16 - menuItemCount * 34),
+              ),
+            }}
           >
             <MenuItem
               icon={SquareArrowOutUpRight}
