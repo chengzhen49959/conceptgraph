@@ -62,6 +62,7 @@ class DocumentOut(BaseModel):
     summary: str | None = None  # doc-level summary, filled once ingest completes
     source_url: str | None = None  # web origin if clipped, else null (file upload)
     doc_metadata: dict | None = None  # clip-time page metadata (author/date/site/…), else null
+    duplicate_of: uuid.UUID | None = None  # original it duplicates when status='duplicate', else null
 
 
 class DocumentDownloadOut(BaseModel):

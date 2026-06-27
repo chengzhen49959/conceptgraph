@@ -23,6 +23,9 @@ backend/.venv/
 # Build / cache
 *.tsbuildinfo
 
+# Local Redis dump (created when running redis-server locally)
+*.rdb
+
 # OS / editor
 .DS_Store
 .idea/

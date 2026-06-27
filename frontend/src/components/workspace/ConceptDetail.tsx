@@ -37,9 +37,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Highlighted, snippetAround } from '@/lib/passage-format'
+import { RELATION_LABEL, RELATION_TYPES, humanizeRelation } from '@/lib/relations'
 import { ConceptAnnotations } from './ConceptAnnotations'
 import { ConceptCombobox } from './ConceptCombobox'
 
@@ -280,13 +288,13 @@ export function ConceptPanel({
     }
   }
   const addConnection = async () => {
-    if (!newTargetId || !newRelation.trim()) return
+    if (!newTargetId || !newRelation) return
     setAddingRel(true)
     try {
       await createEdge({
         source_concept_id: node.id,
         target_concept_id: newTargetId,
-        relation: newRelation.trim(),
+        relation: newRelation,
       })
       setNewRelation('')
       setNewTargetId('')
@@ -386,7 +394,7 @@ export function ConceptPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-5 p-4">
           <div className="grid grid-cols-3 gap-2">
-            <Stat label="mentions" value={detail?.mentions ?? node.mentions} />
+            <Stat label="passages" value={detail?.mentions ?? node.mentions} />
             <Stat label="connections" value={detail?.degree ?? neighbors.length} />
             <Stat label="documents" value={detail?.documents.length ?? 0} />
           </div>
@@ -507,7 +515,7 @@ export function ConceptPanel({
                       <ArrowLeft className="size-3 shrink-0 text-muted-foreground" />
                     )}
                     <span className="shrink-0 text-muted-foreground">
-                      {e.relation}
+                      {humanizeRelation(e.relation)}
                     </span>
                     <button
                       onClick={() => onNavigate(e.otherId)}
@@ -534,21 +542,24 @@ export function ConceptPanel({
                   onChange={setNewTargetId}
                   placeholder="Connect to…"
                 />
-                <Input
-                  value={newRelation}
-                  onChange={(e) => setNewRelation(e.target.value)}
-                  placeholder="relation"
-                  className="h-8 w-28 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addConnection()
-                  }}
-                />
+                <Select value={newRelation} onValueChange={setNewRelation}>
+                  <SelectTrigger size="sm" className="w-32 text-xs">
+                    <SelectValue placeholder="relation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RELATION_TYPES.map((t) => (
+                      <SelectItem key={t} value={t} className="text-xs">
+                        {RELATION_LABEL[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   size="icon"
                   variant="outline"
                   className="size-8 shrink-0"
                   onClick={addConnection}
-                  disabled={addingRel || !newTargetId || !newRelation.trim()}
+                  disabled={addingRel || !newTargetId || !newRelation}
                   aria-label="Add connection"
                 >
                   <Plus className="size-4" />

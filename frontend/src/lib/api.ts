@@ -57,6 +57,9 @@ export type DocumentStatus =
   | 'clustering'
   | 'done'
   | 'failed'
+  // Skipped because the workspace already holds this paper (same bytes, or near-
+  // identical text); see `duplicate_of`. Terminal — contributes nothing to the graph.
+  | 'duplicate'
 
 /** Human label for each ingest stage, shown in the documents list + status bar. */
 export const DOC_STATUS_LABEL: Record<DocumentStatus, string> = {
@@ -69,6 +72,7 @@ export const DOC_STATUS_LABEL: Record<DocumentStatus, string> = {
   clustering: 'Clustering',
   done: 'Ready',
   failed: 'Failed',
+  duplicate: 'Duplicate',
 }
 
 export type DocumentOut = {
@@ -78,6 +82,8 @@ export type DocumentOut = {
   source_type: string
   status: DocumentStatus
   error: string | null
+  // The original this document duplicates (set when status is 'duplicate'), else null.
+  duplicate_of?: string | null
   // The web origin a clipped document came from; null for a file upload. The
   // source view branches on it: a clip links to this page, an upload to its file.
   source_url?: string | null
@@ -93,7 +99,8 @@ export type CreateDocumentResponse = {
 }
 
 /** A document is still being processed (worker hasn't reached a terminal state). */
-export const isProcessing = (s: DocumentStatus) => s !== 'done' && s !== 'failed'
+export const isProcessing = (s: DocumentStatus) =>
+  s !== 'done' && s !== 'failed' && s !== 'duplicate'
 
 export function listDocuments(workspaceId?: string) {
   const q = workspaceId ? `?workspace_id=${workspaceId}` : ''

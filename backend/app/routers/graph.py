@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai import RELATION_TYPES
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
 from app.models import Cluster, Concept, ConceptMention, Edge
@@ -20,13 +21,17 @@ from app.services.workspaces import ensure_personal_workspace, require_workspace
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
+# Vocabulary precedence for collapsing competing relation types on one pair (lower =
+# wins a weight tie). Unknown/legacy free-text relations sort last.
+_REL_PRIORITY = {t: i for i, t in enumerate(RELATION_TYPES)}
+
 
 class GraphNode(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
     cluster_id: uuid.UUID | None
-    mentions: int  # provenance count — drives node size in the UI
+    mentions: int  # number of distinct papers that mention it — drives node size
 
 
 class GraphLink(BaseModel):
@@ -63,11 +68,14 @@ async def get_graph(
     else:
         await require_workspace(session, user.id, workspace_id)
 
-    # Mention count per concept, folded into the node query so size is one round-trip.
+    # Distinct-paper count per concept, folded into the node query so size is one
+    # round-trip. Counting distinct documents (not raw mention rows) is the signal the
+    # use case wants — "appears in N papers" — and is stable under the provenance
+    # re-link, where one paper contributes several chunk mentions per concept.
     mentions = (
         select(
             ConceptMention.concept_id.label("cid"),
-            func.count().label("n"),
+            func.count(func.distinct(ConceptMention.document_id)).label("n"),
         )
         .group_by(ConceptMention.concept_id)
         .subquery()
@@ -99,6 +107,23 @@ async def get_graph(
         )
     ).all()
 
+    # Collapse competing relation types on one ordered pair into a single link: its
+    # dominant type (most papers assert it; ties broken by vocabulary precedence), with
+    # thickness = total assertions across all types on the pair. Keeps the map legible
+    # (one labelled edge per pair) while edge weights still mean "papers that agree".
+    collapsed: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
+    for eid, s, t, rel, w in link_rows:
+        cur = collapsed.get((s, t))
+        if cur is None:
+            collapsed[(s, t)] = {"id": eid, "relation": rel, "win": w, "total": w}
+            continue
+        cur["total"] += w
+        if w > cur["win"] or (
+            w == cur["win"]
+            and _REL_PRIORITY.get(rel, 99) < _REL_PRIORITY.get(cur["relation"], 99)
+        ):
+            cur["id"], cur["relation"], cur["win"] = eid, rel, w
+
     # Only LEAF clusters (the ones concepts actually attach to) drive the flat
     # topic list + node colouring; parent clusters exist for the hierarchy and are
     # reachable via `parent_id`, but listing them here would clutter the UI with
@@ -126,8 +151,10 @@ async def get_graph(
             for r in node_rows
         ],
         links=[
-            GraphLink(id=r[0], source=r[1], target=r[2], relation=r[3], weight=r[4])
-            for r in link_rows
+            GraphLink(
+                id=v["id"], source=s, target=t, relation=v["relation"], weight=v["total"]
+            )
+            for (s, t), v in collapsed.items()
         ],
         clusters=[
             GraphCluster(id=r[0], label=r[1], parent_id=r[2]) for r in cluster_rows

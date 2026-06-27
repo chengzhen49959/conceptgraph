@@ -1,84 +1,19 @@
-"""Per-chunk concept + relation extraction (OpenAI structured output)."""
+"""Whole-document core concept + relation extraction (OpenAI structured output).
+
+One pass per document returns only the concepts a paper is actually about, plus
+typed relations from a fixed 6-verb vocabulary. Precision-first, built for "which
+of my papers cover X" + a legible concept map (vs a high-recall per-chunk pass that
+floods the graph with cited/background mentions).
+"""
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.ai.client import LLM_SEMAPHORE, get_client
 from app.config import get_settings
 
-
-# Strict-schema-safe (every field required; optional = `T | None`; nesting ≤ 5).
-class ExtractedConcept(BaseModel):
-    name: str
-    description: str  # required: a self-contained, glossary-style definition
-    aliases: list[str]
-
-
-class ExtractedRelation(BaseModel):
-    source: str  # a concept name appearing in `concepts`
-    target: str  # a concept name appearing in `concepts`
-    relation: str  # short verb phrase, e.g. "is a kind of"
-
-
-class ChunkExtraction(BaseModel):
-    concepts: list[ExtractedConcept]
-    relations: list[ExtractedRelation]
-    summary: str  # 1-2 sentence summary of THIS passage; aggregated into a doc summary
-
-
-_INSTRUCTIONS = """You extract knowledge from ONE passage of a document for a knowledge graph.
-
-LANGUAGE — write EVERY `name`, `alias`, and `description` in English, whatever
-language the passage is in. Translate every non-English term to its standard
-English name (a passage in Chinese still yields English names such as
-"self-attention"); if a term has no established English name, transliterate it
-into the Latin alphabet. The output must contain no CJK or other non-English
-characters.
-
-CONCEPTS — every concept NAMED in the passage that passes the inclusion test
-below. Your job here is RECALL, not judgement: include a concept even if the
-passage only mentions it in passing. A separate document-level pass decides which
-of these concepts the document is actually about, so MISSING a named concept is
-the costly error here — keeping a minor one is not. Do NOT cap the count; return
-as many distinct concepts as the passage names (a dense passage has many, a thin
-one may have none). A concept is a specific, nameable idea: a method, mechanism,
-structure, principle, phenomenon, framework, or result.
-
-Include a concept only if ALL hold:
-- An encyclopedia could have a focused article under exactly this name.
-- It is NOT a whole field or umbrella term (wrong: "Machine Learning", "Linguistics").
-- It is NOT a generic activity, property, or artifact (wrong: "Training",
-  "Evaluation", "Dataset", "Optimization", "Cause").
-- It is NOT a person. Never extract someone's name — the document's author, a
-  cited theorist or researcher, a historical figure — as a concept; extract the
-  idea, method, or framework they introduced instead, under its standard name
-  (a passage by Darwin on evolution yields "natural selection", never "Darwin").
-  The same applies to an organization cited only as a source.
-- It is NOT a sentence, clause, claim, or question — only a noun-phrase term.
-
-Prefer the most specific name the passage treats. Use the standard community
-term as `name` (short noun phrase, singular, standard casing; spelled-out form
-when an acronym also exists); put variants/abbreviations in `aliases`.
-
-`description` (REQUIRED): 2-3 sentences defining the concept in general,
-self-contained terms — what it is, how it works, what it is for. Write it like a
-standalone glossary entry: never reference "this passage", "the document", or
-"the author". The same concept seen in a different document must yield a nearly
-identical description — this is what lets duplicates across documents merge.
-
-RELATIONS — short verb-phrase predicates between two concepts, BOTH present in
-`concepts` by their exact `name` (e.g. "is a kind of", "depends on", "is used
-for"). Skip any relation whose endpoints aren't both in the concept list.
-
-SUMMARY — also return `summary`: 1-2 sentences, in English, stating what THIS
-passage is about (its topic and main point). It is aggregated with the other
-passages' summaries into a single document summary, so keep it self-contained and
-free of references like "this passage"."""
-
-# The prompt aims for completeness, so this is only a runaway backstop, not a
-# quality knob — a single passage realistically never has this many concepts.
-_MAX_CONCEPTS = 40
 _MAX_NAME_LEN = 60  # a concept name longer than this is almost certainly a clause
 _SENTENCE_PUNCT = re.compile(r"[。！？!?…;；]|\.\.\.")
 _PARENTHETICAL = re.compile(r"[（(][^）)]*[)）]")
@@ -88,8 +23,8 @@ def _clean_name(name: str) -> str | None:
     """Normalise an extracted name, or return None if it isn't a real concept.
 
     A code-level backstop for the model still slipping a sentence / question /
-    fragment through: drop parentheticals and slash-examples, reject anything
-    with sentence punctuation or that's too long to be a term.
+    fragment through: drop parentheticals and slash-examples, reject anything with
+    sentence punctuation or that's too long to be a term.
     """
     n = _PARENTHETICAL.sub("", name).strip()
     n = n.split("/")[0].strip()  # keep the head term before an example slash
@@ -100,49 +35,118 @@ def _clean_name(name: str) -> str | None:
     return n
 
 
-def _clean(parsed: ChunkExtraction) -> ChunkExtraction:
-    """Filter garbage names, cap the count, and re-point relations to kept names."""
-    name_map: dict[str, str] = {}  # original name -> cleaned name (kept only)
-    kept: dict[str, ExtractedConcept] = {}  # lower(name) -> concept
+# A fixed, directed relation vocabulary — six verbs that cover ~90% of how research
+# concepts relate, ordered by precedence so a pair asserted with two verbs collapses
+# to the most informative one (lineage/contrast over scaffolding). Kept small on
+# purpose: a 6-way choice the model makes consistently, where a dozen free-text
+# predicates fragment (the duplicate-edge problem). See worker edge collapse and the
+# (workspace, source, target, kind) edge key.
+RELATION_TYPES = [
+    "builds_on",  # source derived from / improves / extends target (newer -> prior)
+    "contrasts_with",  # source is an alternative/competitor to target (SYMMETRIC)
+    "applied_to",  # source (a method) addresses target (a task/domain)
+    "uses",  # source depends on target as a component/mechanism
+    "part_of",  # source is a component of target
+    "is_a",  # source is a subtype/instance of target
+]
+RelationType = Literal[
+    "builds_on", "contrasts_with", "applied_to", "uses", "part_of", "is_a"
+]
+SYMMETRIC_RELATIONS = {"contrasts_with"}
+
+
+class CoreConcept(BaseModel):
+    name: str
+    description: str
+    aliases: list[str]
+
+
+class CoreRelation(BaseModel):
+    source: str  # a concept name appearing in `concepts`
+    target: str  # a concept name appearing in `concepts`
+    type: RelationType
+
+
+class CoreExtraction(BaseModel):
+    concepts: list[CoreConcept]
+    relations: list[CoreRelation]
+    summary: str  # 1-2 sentence document summary (topic + main point)
+
+
+_CORE_INSTRUCTIONS = """You build a research knowledge graph from ONE paper, for a student who later asks "which of my papers cover X" and "how do these ideas relate".
+
+LANGUAGE — write every `name`, `alias`, `description`, and `summary` in English, translating any non-English term to its standard English name.
+
+CONCEPTS — extract ONLY the CORE concepts the paper actually contributes or is centrally about: the ideas a one-paragraph abstract would name. EXCLUDE anything merely cited, used as background, named in related-work, or appearing once in passing — that is noise for this use case. Prefer 5-15 concepts; never more than 20. A concept is a specific, nameable method, mechanism, structure, principle, or result. NEVER a person, a whole field ("machine learning"), a generic activity ("training", "evaluation"), or a dataset/metric unless it is the paper's own contribution.
+
+For each concept: the standard community `name` (short noun phrase, singular, standard casing; spelled-out form when an acronym exists), a 2-3 sentence self-contained glossary `description` (define it in general terms — never reference "this paper"/"the document"; the same concept in another paper must yield a nearly identical description so duplicates merge), and `aliases` (abbreviations/variants).
+
+RELATIONS — only between two concepts BOTH in your `concepts` list, by their exact `name`. Use EXACTLY ONE of these six `type` values, and RESPECT DIRECTION (source -> target):
+- builds_on: source is derived from / improves / extends target. source newer -> target prior. (RoBERTa builds_on BERT)
+- contrasts_with: source is an alternative/competitor to target. SYMMETRIC — order doesn't matter. (self-attention contrasts_with recurrence)
+- applied_to: source (a method) addresses target (a task/domain/problem). method -> task. (Transformer applied_to machine translation)
+- uses: source depends on target as a component/mechanism. dependent -> dependency. (Transformer uses self-attention)
+- part_of: source is a component of target. component -> whole. (encoder part_of Transformer)
+- is_a: source is a subtype/instance of target. specific -> general. (self-attention is_a attention mechanism)
+
+Emit only a relation the paper actually asserts; skip vague or incidental pairs. Direction matters — do not flip source and target.
+
+SUMMARY — `summary`: 1-2 self-contained English sentences stating the paper's topic and main contribution."""
+
+
+def _clean_core(parsed: CoreExtraction) -> CoreExtraction:
+    """Filter garbage names (reusing the name guard), cap at 20 concepts, and drop
+    relations whose endpoints aren't both kept (or are self-loops/duplicates)."""
+    name_map: dict[str, str] = {}  # original -> cleaned (kept only)
+    kept: dict[str, CoreConcept] = {}  # lower(name) -> concept
     for c in parsed.concepts:
         cleaned = _clean_name(c.name)
         if cleaned is None:
             continue
         name_map[c.name] = cleaned
         key = cleaned.lower()
-        if key not in kept:
-            if len(kept) >= _MAX_CONCEPTS:
-                continue
-            kept[key] = ExtractedConcept(
+        if key not in kept and len(kept) < 20:
+            kept[key] = CoreConcept(
                 name=cleaned,
                 description=c.description,
                 aliases=[a.strip() for a in c.aliases if a.strip()],
             )
 
-    relations: list[ExtractedRelation] = []
+    relations: list[CoreRelation] = []
+    seen: set[tuple[str, str, str]] = set()
     for r in parsed.relations:
         s = name_map.get(r.source)
         t = name_map.get(r.target)
-        if s and t and s.lower() in kept and t.lower() in kept and s.lower() != t.lower():
-            relations.append(ExtractedRelation(source=s, target=t, relation=r.relation))
+        if not (s and t) or s.lower() not in kept or t.lower() not in kept:
+            continue
+        if s.lower() == t.lower():
+            continue
+        sig = (s.lower(), t.lower(), r.type)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        relations.append(CoreRelation(source=s, target=t, type=r.type))
 
-    return ChunkExtraction(
+    return CoreExtraction(
         concepts=list(kept.values()), relations=relations, summary=parsed.summary
     )
 
 
-async def extract_concepts(text: str) -> ChunkExtraction:
-    """Extract concepts + relations from one chunk. Refusal → empty extraction."""
+async def extract_core(text: str) -> CoreExtraction:
+    """Extract a paper's CORE concepts + typed relations in ONE whole-document call.
+
+    Precision-first: returns only what the paper is about, so it needs no separate
+    core gate. Refusal / parse failure → empty extraction."""
     client = get_client()
     settings = get_settings()
     async with LLM_SEMAPHORE:
         resp = await client.responses.parse(
             model=settings.extract_model,
-            instructions=_INSTRUCTIONS,
+            instructions=_CORE_INSTRUCTIONS,
             input=text,
-            text_format=ChunkExtraction,
+            text_format=CoreExtraction,
             reasoning={"effort": "low"},
         )
-    return _clean(
-        resp.output_parsed or ChunkExtraction(concepts=[], relations=[], summary="")
+    return _clean_core(
+        resp.output_parsed or CoreExtraction(concepts=[], relations=[], summary="")
     )

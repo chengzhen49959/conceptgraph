@@ -174,6 +174,24 @@ class Document(Base):
     # Nullable: pre-feature documents have none until the content endpoint lazily
     # backfills them by re-parsing from S3. Web clips keep `source_url` as well.
     body_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # sha256 of the raw uploaded bytes — the per-workspace file-content de-dup key
+    # (the upload counterpart to source_url_canonical for clips). NULL until the
+    # worker computes it after fetching the object from S3. Re-uploading the same
+    # file lands a row whose hash matches an existing document; the worker then
+    # marks this one status='duplicate' and skips the pipeline, so a paper read once
+    # contributes its concepts/edges exactly once (edge weight = papers that agree).
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 64-bit SimHash (hex) of the parsed text — the lexical near-duplicate key that
+    # content_hash can't catch: a re-rendered PDF / arxiv v1-vs-v2 has different bytes
+    # but near-identical text, so its fingerprint is within a few bits. Set after parse;
+    # see services/simhash.py and the worker's near-duplicate check.
+    text_simhash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The original this document duplicates (same content_hash, or near-identical text,
+    # in the workspace). Set alongside status='duplicate'; SET NULL if the original is
+    # deleted.
+    duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -182,6 +200,8 @@ class Document(Base):
         Index("ix_documents_workspace_status", "workspace_id", "status"),
         # De-dup lookup: find a workspace's existing clip of a page by canonical URL.
         Index("ix_documents_workspace_canonical", "workspace_id", "source_url_canonical"),
+        # De-dup lookup: find a workspace's existing copy of a file by content hash.
+        Index("ix_documents_workspace_content_hash", "workspace_id", "content_hash"),
     )
 
 
