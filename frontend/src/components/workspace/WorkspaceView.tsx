@@ -268,16 +268,21 @@ export function WorkspaceView({
   // deleted focused cluster is reconciled by the effect above.
   const handleDeleteDocuments = useCallback(
     async (ids: string[]) => {
+      const n = ids.length
+      // Show a live "Deleting…" toast immediately — the delete + full graph refetch
+      // take a beat, and the row doesn't vanish until the refetch lands, so without
+      // this the UI looks frozen. Resolve the SAME toast id to success/error.
+      const tid = toast.loading(`Deleting ${n} document${n > 1 ? 's' : ''}…`)
       try {
         const r = await deleteDocuments(ids, workspaceId)
         await Promise.all([refreshDocs(), refreshGraph()])
-        const n = ids.length
         toast.success(
           `Deleted ${n} document${n > 1 ? 's' : ''}` +
             (r.deleted_concepts ? ` and ${r.deleted_concepts} orphaned concept(s)` : ''),
+          { id: tid },
         )
       } catch (e) {
-        toast.error((e as Error).message)
+        toast.error((e as Error).message, { id: tid })
       }
     },
     [refreshDocs, refreshGraph, workspaceId],
@@ -285,16 +290,18 @@ export function WorkspaceView({
 
   const handleDeleteClusters = useCallback(
     async (ids: string[]) => {
+      const n = ids.length
+      const tid = toast.loading(`Deleting ${n} topic${n > 1 ? 's' : ''} & their concepts…`)
       try {
         const r = await deleteClusters(ids, workspaceId)
         await refreshGraph() // clusters/concepts are graph-only; docs are untouched
-        const n = ids.length
         toast.success(
           `Deleted ${n} topic${n > 1 ? 's' : ''}` +
             (r.deleted_concepts ? ` and ${r.deleted_concepts} concept(s)` : ''),
+          { id: tid },
         )
       } catch (e) {
-        toast.error((e as Error).message)
+        toast.error((e as Error).message, { id: tid })
       }
     },
     [refreshGraph, workspaceId],
@@ -331,13 +338,14 @@ export function WorkspaceView({
 
   const handleDeleteConcept = useCallback(
     async (conceptId: string) => {
+      const tid = toast.loading('Deleting concept…')
       try {
         await deleteConcept(conceptId)
         setSelectedId((cur) => (cur === conceptId ? null : cur))
         await refreshGraph()
-        toast.success('Concept deleted')
+        toast.success('Concept deleted', { id: tid })
       } catch (e) {
-        toast.error((e as Error).message)
+        toast.error((e as Error).message, { id: tid })
       }
     },
     [refreshGraph],
@@ -349,17 +357,25 @@ export function WorkspaceView({
   // the rest. Refetch once at the end. Closes the open panel if its concept went.
   const handleDeleteConcepts = useCallback(
     async (ids: string[]) => {
+      const n = ids.length
+      const tid = toast.loading(`Deleting ${n} concept${n > 1 ? 's' : ''}…`)
       const results = await Promise.allSettled(ids.map((id) => deleteConcept(id)))
       const ok = results.filter((r) => r.status === 'fulfilled').length
       const failed = ids.length - ok
       setSelectedId((cur) => (cur && ids.includes(cur) ? null : cur))
       await refreshGraph()
+      // Always resolve the loading toast (success if any deleted, else error) so it
+      // never hangs spinning.
       if (ok)
         toast.success(
           `Deleted ${ok} concept${ok > 1 ? 's' : ''}` +
             (failed ? ` · ${failed} failed` : ''),
+          { id: tid },
         )
-      else if (failed) toast.error(`Failed to delete ${failed} concept${failed > 1 ? 's' : ''}`)
+      else
+        toast.error(`Failed to delete ${failed} concept${failed > 1 ? 's' : ''}`, {
+          id: tid,
+        })
     },
     [refreshGraph],
   )

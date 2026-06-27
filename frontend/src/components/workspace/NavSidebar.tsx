@@ -62,9 +62,10 @@ const ACCEPT = '.pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain
 const ROW_COUNT =
   'shrink-0 text-xs tabular-nums text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden'
 
-/** The three things the sidebar can batch-select for deletion. Exactly one kind is
- *  ever active at a time, so a checked id can never be stranded between kinds. */
-type SelectKind = 'documents' | 'clusters' | 'concepts'
+/** What the sidebar can batch-select for deletion. Documents select on their own; the
+ *  graph section selects topics and concepts together in one mixed set — a topic delete
+ *  cascades to its concepts, so the two belong in one interface, not a kind switch. */
+type SelectKind = 'documents' | 'graph'
 
 /** All-or-none select toggle: full selection → empty, otherwise → all. */
 const selectAllOrNone = (cur: Set<string>, allIds: string[]) =>
@@ -78,11 +79,6 @@ const invertSelection = (cur: Set<string>, allIds: string[]) =>
  * Batch-action toolbar that takes over a section header while that section is in
  * select mode. Two rows: clear · count · delete, then select-all / invert. Hidden
  * on the icon rail. Delete is disabled until at least one row is checked.
- *
- * `modes` adds a segmented control between the two rows for a section that can
- * select more than one kind (Topics → whole topics vs individual concepts); each
- * segment switch clears the selection so the kinds never mix. Omit it for
- * single-kind sections (Documents).
  */
 function SelectionToolbar({
   count,
@@ -92,9 +88,6 @@ function SelectionToolbar({
   onInvert,
   onClear,
   onDelete,
-  modes,
-  activeMode,
-  onModeChange,
 }: {
   count: number
   allSelected: boolean
@@ -103,9 +96,6 @@ function SelectionToolbar({
   onInvert: () => void
   onClear: () => void
   onDelete: () => void
-  modes?: { value: string; label: string }[]
-  activeMode?: string
-  onModeChange?: (value: string) => void
 }) {
   return (
     <div className="pb-1 pt-1 group-data-[collapsible=icon]:hidden">
@@ -131,26 +121,6 @@ function SelectionToolbar({
           <Trash2 className="size-4" />
         </button>
       </div>
-      {modes && (
-        <div className="mt-1 flex items-center gap-0.5 rounded-md bg-sidebar-accent/40 p-0.5">
-          {modes.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => onModeChange?.(m.value)}
-              aria-pressed={activeMode === m.value}
-              className={cn(
-                'flex-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
-                activeMode === m.value
-                  ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                  : 'text-sidebar-foreground/60 hover:text-sidebar-foreground',
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
       <div className="mt-1 flex items-center gap-1">
         <button
           type="button"
@@ -256,21 +226,20 @@ export function NavSidebar({
   const [docsOpen, setDocsOpen] = useState(true)
   const [clustersOpen, setClustersOpen] = useState(true)
 
-  // One batch-select machine for all three kinds. `selecting` names the active kind
-  // (null = not selecting); `selected` holds that kind's checked ids. Because a single
-  // kind is ever active, a checked id can never be stranded between two sets — the
-  // Topics section simply switches `selecting` between 'clusters' and 'concepts' via
-  // its toolbar segmented control, clearing the selection on each switch.
+  // One batch-select machine. `selecting` names the active section ('documents' or
+  // 'graph'); `selected` holds its checked ids. The graph section mixes topic and
+  // concept ids in that one set — checking a topic marks its whole group (delete
+  // cascades to its concepts), checking a concept marks just that node — so topics and
+  // concepts are picked together in one list instead of a Topics-or-Concepts switch.
   const [selecting, setSelecting] = useState<SelectKind | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const selectingDocs = selecting === 'documents'
-  const selectingClusters = selecting === 'clusters'
-  const selectingConcepts = selecting === 'concepts'
-  // The Topics section is "in select mode" for either of its two kinds.
-  const topicsSelect = selectingClusters || selectingConcepts
+  const selectingGraph = selecting === 'graph'
+  // The Topics section is "in select mode" while the graph section is selecting.
+  const topicsSelect = selectingGraph
 
   // Which topics are expanded to show their concept list inline.
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -285,8 +254,8 @@ export function NavSidebar({
     return next
   }
 
-  // Enter a section's select mode (Topics defaults to whole-topic 'clusters'), open
-  // that section so the rows being selected are visible, and close any open swipe.
+  // Enter a section's select mode, opening that section so the rows being selected are
+  // visible. The graph section opens the Topics list (topics + their concepts).
   const enterSelect = (kind: SelectKind) => {
     setSelected(new Set())
     if (kind === 'documents') setDocsOpen(true)
@@ -296,12 +265,6 @@ export function NavSidebar({
   const exitSelect = () => {
     setSelected(new Set())
     setSelecting(null)
-  }
-  // Topics toolbar segmented control: switch which kind the Topics section selects,
-  // clearing the current selection so whole-topic and per-concept picks never mix.
-  const switchTopicsKind = (kind: 'clusters' | 'concepts') => {
-    setSelected(new Set())
-    setSelecting(kind)
   }
 
   // Two-way sync: when a concept is selected anywhere (canvas, search, panel link),
@@ -397,10 +360,24 @@ export function NavSidebar({
     [onChange],
   )
 
-  // One descriptor per selectable kind: the id universe its select-all / invert act
-  // over, the delete call, and the confirm-dialog copy. The active kind drives the
-  // single SelectionToolbar and single ConfirmDialog below, so adding/altering a kind
-  // is one table entry rather than a change spread across modes, sets, and switches.
+  // id → its cluster_id, and the set of topic ids — used to split a mixed
+  // (topic + concept) graph selection back into a topics delete and a concepts delete.
+  const conceptClusterOf = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const n of graph.nodes) m.set(n.id, n.cluster_id ?? null)
+    return m
+  }, [graph.nodes])
+  const clusterIdSet = useMemo(
+    () => new Set(clusterRows.map((c) => c.id)),
+    [clusterRows],
+  )
+
+  // One descriptor per selectable section: the id universe its select-all / invert act
+  // over, and the delete call. The graph section's delete splits the mixed set — topic
+  // ids go through the cascading cluster delete (which also removes their concepts),
+  // the rest through the concept delete, dropping any concept already covered by a
+  // selected topic so nothing is deleted twice. (Confirm copy is computed below from
+  // the topic/concept breakdown.)
   const descriptors = useMemo(
     () => ({
       documents: {
@@ -410,25 +387,30 @@ export function NavSidebar({
         dialogDescription:
           'Their chunks, and any concepts only they mention, are removed from the graph. Concepts cited by other documents are kept. This cannot be undone.',
       },
-      clusters: {
-        allIds: clusterRows.map((c) => c.id),
-        onDelete: onDeleteClusters,
-        dialogTitle: (n: number) => `Delete ${n} topic${n > 1 ? 's' : ''}?`,
+      graph: {
+        allIds: [...clusterRows.map((c) => c.id), ...allConceptIds],
+        onDelete: async (ids: string[]) => {
+          const topicIds = ids.filter((id) => clusterIdSet.has(id))
+          const topicSet = new Set(topicIds)
+          const conceptIds = ids.filter(
+            (id) =>
+              !clusterIdSet.has(id) &&
+              !topicSet.has(conceptClusterOf.get(id) ?? ''),
+          )
+          if (topicIds.length) await onDeleteClusters(topicIds)
+          if (conceptIds.length) await onDeleteConcepts(conceptIds)
+        },
+        dialogTitle: (n: number) => `Delete ${n} item${n > 1 ? 's' : ''}?`,
         dialogDescription:
-          'Every concept in these topics and their relationships are removed from the graph. The source documents are kept. This cannot be undone.',
-      },
-      concepts: {
-        allIds: allConceptIds,
-        onDelete: onDeleteConcepts,
-        dialogTitle: (n: number) => `Delete ${n} concept${n > 1 ? 's' : ''}?`,
-        dialogDescription:
-          'These concepts and their relationships are removed from the graph. Their source documents are kept. This cannot be undone.',
+          'The selected topics (with their concepts) and concepts, and their relationships, are removed from the graph. Documents are kept. This cannot be undone.',
       },
     }),
     [
       documents,
       clusterRows,
       allConceptIds,
+      clusterIdSet,
+      conceptClusterOf,
       onDeleteDocuments,
       onDeleteClusters,
       onDeleteConcepts,
@@ -437,6 +419,39 @@ export function NavSidebar({
 
   const active = selecting ? descriptors[selecting] : null
   const allIds = active?.allIds ?? []
+
+  // Graph selection mixes topics + concepts; break it down so the confirm dialog names
+  // both (and spells out that deleting a topic also removes the concepts inside it).
+  const selTopicCount = useMemo(
+    () => [...selected].filter((id) => clusterIdSet.has(id)).length,
+    [selected, clusterIdSet],
+  )
+  const selConceptCount = selected.size - selTopicCount
+  // Concepts that ride along with the selected topics (removed by the cascade) — so the
+  // confirm can state how many concepts a topic delete actually takes with it.
+  const selTopicConceptCount = useMemo(
+    () =>
+      [...selected]
+        .filter((id) => clusterIdSet.has(id))
+        .reduce((sum, id) => sum + (conceptsByCluster.get(id)?.length ?? 0), 0),
+    [selected, clusterIdSet, conceptsByCluster],
+  )
+  const confirmTitle = selectingGraph
+    ? `Delete ${[
+        selTopicCount && `${selTopicCount} topic${selTopicCount > 1 ? 's' : ''}`,
+        selConceptCount &&
+          `${selConceptCount} concept${selConceptCount > 1 ? 's' : ''}`,
+      ]
+        .filter(Boolean)
+        .join(' and ')}?`
+    : active
+      ? active.dialogTitle(selected.size)
+      : ''
+  const confirmDescription = selectingGraph
+    ? selTopicCount > 0
+      ? `Deleting ${selTopicCount === 1 ? 'this topic' : 'these topics'} also removes the ${selTopicConceptCount} concept${selTopicConceptCount === 1 ? '' : 's'} inside ${selTopicCount === 1 ? 'it' : 'them'}${selConceptCount > 0 ? `, plus the ${selConceptCount} concept${selConceptCount === 1 ? '' : 's'} you picked separately` : ''} — with all their relationships. Source documents are kept. This cannot be undone.`
+      : 'The selected concepts and their relationships are removed from the graph. Source documents are kept. This cannot be undone.'
+    : active?.dialogDescription ?? ''
 
   const confirmDelete = async () => {
     if (!active) return
@@ -451,13 +466,8 @@ export function NavSidebar({
     }
   }
 
-  // The single selection toolbar, parameterised by the active kind. `modeProps` adds
-  // the Topics-only segmented control; omit it for Documents.
-  const renderToolbar = (modeProps?: {
-    modes: { value: string; label: string }[]
-    activeMode: string
-    onModeChange: (value: string) => void
-  }) => (
+  // The single selection toolbar, parameterised by the active section.
+  const renderToolbar = () => (
     <SelectionToolbar
       count={selected.size}
       allSelected={allIds.length > 0 && selected.size === allIds.length}
@@ -466,7 +476,6 @@ export function NavSidebar({
       onInvert={() => setSelected((s) => invertSelection(s, allIds))}
       onClear={exitSelect}
       onDelete={() => setConfirmOpen(true)}
-      {...modeProps}
     />
   )
 
@@ -569,32 +578,33 @@ export function NavSidebar({
         {/* Topics — auto-generated concept groups; expand to list their concepts.
             Hidden on the icon rail — a column of bare colour dots is meaningless. */}
         <SidebarGroup className="group/section group-data-[collapsible=icon]:hidden">
-          {topicsSelect ? (
-            renderToolbar({
-              modes: [
-                { value: 'clusters', label: 'Topics' },
-                { value: 'concepts', label: 'Concepts' },
-              ],
-              activeMode: selecting ?? 'clusters',
-              onModeChange: (v) =>
-                switchTopicsKind(v as 'clusters' | 'concepts'),
-            })
-          ) : (
-            <>
-              <SectionLabel
-                label="Topics"
-                count={graph.clusters.length}
-                open={clustersOpen}
-                onToggle={() => setClustersOpen((o) => !o)}
-              />
-              {clusterRows.length > 0 && (
-                <SelectToggle
-                  onClick={() => enterSelect('clusters')}
-                  label="Select topics"
+          {/* The whole sidebar scrolls as one, but this header bar stays pinned to
+              the top of the scroll area (`sticky top-0`) so the Topics Select entry
+              — then the batch toolbar that replaces it — is always reachable in a
+              long topic list. z-20 covers the rows' z-10 checkboxes; bg-sidebar
+              keeps it opaque as rows scroll under it. The Select toggle is absolute,
+              so it now anchors to this wrapper — re-centred with `top-1/2`. */}
+          <div className="sticky top-0 z-20 bg-sidebar">
+            {topicsSelect ? (
+              renderToolbar()
+            ) : (
+              <>
+                <SectionLabel
+                  label="Topics"
+                  count={graph.clusters.length}
+                  open={clustersOpen}
+                  onToggle={() => setClustersOpen((o) => !o)}
                 />
-              )}
-            </>
-          )}
+                {clusterRows.length > 0 && (
+                  <SelectToggle
+                    onClick={() => enterSelect('graph')}
+                    label="Select topics & concepts"
+                    className="top-1/2 -translate-y-1/2"
+                  />
+                )}
+              </>
+            )}
+          </div>
 
           {clustersOpen &&
             (loadingGraph ? (
@@ -646,7 +656,7 @@ export function NavSidebar({
                         },
                         {
                           icon: Trash2,
-                          label: 'Delete topic',
+                          label: `Delete topic & ${cl.count} concept${cl.count === 1 ? '' : 's'}`,
                           destructive: true,
                           separatorBefore: true,
                           onClick: () => void onDeleteClusters([cl.id]),
@@ -658,17 +668,15 @@ export function NavSidebar({
                             <SidebarMenuButton
                               tooltip={cl.label ?? 'Unlabeled'}
                               isActive={
-                                (selectingClusters && checked) ||
+                                (selectingGraph && checked) ||
                                 (!topicsSelect && focusedTopicId === cl.id)
                               }
-                              // Row click: normal → focus this topic on the canvas
-                              // (the chevron alone expands); selecting topics → toggle
-                              // its checkbox; selecting concepts → expand to show them.
+                              // Row click: normal → focus this topic on the canvas;
+                              // selecting → toggle its checkbox (marks the whole group
+                              // for delete). The chevron alone expands to its concepts.
                               onClick={() => {
-                                if (selectingClusters)
+                                if (selectingGraph)
                                   setSelected((s) => toggleIn(s, cl.id))
-                                else if (selectingConcepts)
-                                  setExpanded((s) => toggleIn(s, cl.id))
                                 else onFocusTopic(cl.id)
                               }}
                               onMouseEnter={() => {
@@ -678,7 +686,7 @@ export function NavSidebar({
                               title={cl.label ?? 'Unlabeled'}
                               className={cn(hidden && !topicsSelect && 'opacity-50')}
                             >
-                              {selectingClusters ? (
+                              {selectingGraph ? (
                                 <span className="flex size-4 shrink-0 items-center justify-center">
                                   <input
                                     type="checkbox"
@@ -760,7 +768,12 @@ export function NavSidebar({
                                 </li>
                               ) : (
                                 concepts.map((con) => {
-                                  const cchecked = selected.has(con.id)
+                                  // A checked topic implies all its concepts (delete
+                                  // cascades to them), so show them checked too — the
+                                  // user sees exactly what goes with the topic. While the
+                                  // topic owns them they can't be individually unchecked.
+                                  const cImplied = checked // parent topic is selected
+                                  const cchecked = cImplied || selected.has(con.id)
                                   const conceptActions: RowAction[] = [
                                     {
                                       icon: SquareArrowOutUpRight,
@@ -783,38 +796,46 @@ export function NavSidebar({
                                     >
                                       <RowContextMenu
                                         actions={
-                                          selectingConcepts ? [] : conceptActions
+                                          selectingGraph ? [] : conceptActions
                                         }
                                       >
                                         <SidebarMenuSubButton
                                           asChild
                                           isActive={
-                                            (selectingConcepts && cchecked) ||
+                                            (selectingGraph && cchecked) ||
                                             (!topicsSelect &&
                                               selectedConceptId === con.id)
                                           }
-                                          className={cn(selectingConcepts && 'pl-7')}
+                                          className={cn(selectingGraph && 'pl-7')}
                                         >
                                           <button
                                             type="button"
-                                            onClick={() =>
-                                              selectingConcepts
-                                                ? setSelected((s) =>
+                                            onClick={() => {
+                                              if (selectingGraph) {
+                                                // Implied-by-topic concepts can't be
+                                                // toggled off on their own.
+                                                if (!cImplied)
+                                                  setSelected((s) =>
                                                     toggleIn(s, con.id),
                                                   )
-                                                : onSelectConcept(con.id)
-                                            }
+                                              } else onSelectConcept(con.id)
+                                            }}
                                             onMouseEnter={() => {
-                                              if (!selectingConcepts)
+                                              if (!selectingGraph)
                                                 onHoverConcept(con.id)
                                             }}
                                             onMouseLeave={() => onHoverConcept(null)}
                                             title={con.name}
-                                            className="w-full cursor-pointer"
+                                            className={cn(
+                                              'w-full',
+                                              selectingGraph && cImplied
+                                                ? 'cursor-default'
+                                                : 'cursor-pointer',
+                                            )}
                                           >
                                             {/* Dot in the topic's colour — the same
                                                 colour this concept's canvas node wears. */}
-                                            {!selectingConcepts && (
+                                            {!selectingGraph && (
                                               <span
                                                 aria-hidden
                                                 className="size-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10 dark:ring-white/20"
@@ -827,7 +848,7 @@ export function NavSidebar({
                                             <span
                                               className={cn(
                                                 ROW_COUNT,
-                                                !selectingConcepts &&
+                                                !selectingGraph &&
                                                   'transition-opacity group-hover/menu-sub-item:opacity-0 group-has-data-[state=open]/menu-sub-item:opacity-0',
                                               )}
                                             >
@@ -838,17 +859,24 @@ export function NavSidebar({
                                       </RowContextMenu>
                                       {/* Per-concept checkbox while selecting concepts;
                                           pointer-events-none — the row toggles it. */}
-                                      {selectingConcepts && (
+                                      {selectingGraph && (
                                         <input
                                           type="checkbox"
                                           checked={cchecked}
                                           readOnly
-                                          aria-label={`Select ${con.name}`}
-                                          className="pointer-events-none absolute left-2 top-1/2 z-10 size-3 -translate-y-1/2 accent-primary"
+                                          aria-label={
+                                            cImplied
+                                              ? `${con.name} — included via its topic`
+                                              : `Select ${con.name}`
+                                          }
+                                          className={cn(
+                                            'pointer-events-none absolute left-2 top-1/2 z-10 size-3 -translate-y-1/2 accent-primary',
+                                            cImplied && 'opacity-50',
+                                          )}
                                         />
                                       )}
                                       {/* Hover ⋯ — open / delete this concept. */}
-                                      {!selectingConcepts && (
+                                      {!selectingGraph && (
                                         <RowOverflow
                                           actions={conceptActions}
                                           label={`Actions for ${con.name}`}
@@ -915,8 +943,8 @@ export function NavSidebar({
         destructive
         loading={deleting}
         confirmLabel={deleting ? 'Deleting…' : 'Delete'}
-        title={active ? active.dialogTitle(selected.size) : ''}
-        description={active ? active.dialogDescription : ''}
+        title={confirmTitle}
+        description={confirmDescription}
         onConfirm={confirmDelete}
       />
 
