@@ -32,3 +32,5 @@ backend/.venv/
 .vscode/
 *.log
 .gstack/
+.vercel
+.env*
