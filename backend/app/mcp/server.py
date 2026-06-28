@@ -1,8 +1,8 @@
 """The MCP server: a FastMCP instance mounted into the FastAPI app at ``/mcp``.
 
-Tools and the graph App UI are registered for their decorator side effects by
-importing ``app.mcp.tools`` and ``app.mcp.app_ui`` at the bottom of this module
-(after ``mcp_server`` exists, to keep the import cycle resolvable).
+Tools are registered for their decorator side effects by importing
+``app.mcp.tools`` at the bottom of this module (after ``mcp_server`` exists, to
+keep the import cycle resolvable).
 
 Mounting (see ``app/main.py``): the FastMCP Starlette app is mounted at the root
 ``/`` *after* the FastAPI routers, so the existing ``/api`` routes win and the
@@ -45,8 +45,6 @@ async def ping() -> str:
     return "pong"
 
 
-# Register tools + the graph App by importing for their decorator side effects.
-# Imported last so `mcp_server` is already defined when these modules import it;
-# tools before app_ui because app_ui reuses tool helpers.
+# Register the tools by importing for their decorator side effects. Imported last
+# so `mcp_server` is already defined when the module imports it.
 from app.mcp import tools as _tools  # noqa: E402,F401
-from app.mcp import app_ui as _app_ui  # noqa: E402,F401
