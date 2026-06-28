@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import (
@@ -51,5 +52,14 @@ def _sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency yielding an Aurora session, closed after the request."""
+    async with _sessionmaker()() as session:
+        yield session
+
+
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
+    """An Aurora session for code that runs outside FastAPI's dependency system
+    (MCP tools, scripts). Same lifecycle as ``get_session`` but usable with
+    ``async with`` rather than ``Depends``."""
     async with _sessionmaker()() as session:
         yield session

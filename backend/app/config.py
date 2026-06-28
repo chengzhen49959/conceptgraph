@@ -95,6 +95,55 @@ class Settings(BaseSettings):
     # comfortably above real pages, below abuse.
     clip_max_chars: int = 300_000
 
+    # --- MCP server (external-memory API for AI clients) -----------------------
+    # The MCP server is mounted at /mcp and authenticates AI clients via OAuth 2.1
+    # with Cognito as the Authorization Server; this backend is the Resource
+    # Server. All fields default so importing config never fails before M0
+    # provisioning; the OAuth dance only works once cognito_domain is set.
+    mcp_enabled: bool = True
+    # Cognito Hosted UI domain — a bare prefix (e.g. "conceptgraph-auth", expanded
+    # to <prefix>.auth.<region>.amazoncognito.com) or a full https host. Empty
+    # until create_user_pool_domain has run (see _provision_cognito.py).
+    cognito_domain: str = ""
+    # Resource-server identifier registered in Cognito; custom scopes are
+    # "<id>/read" and "<id>/write". This is the audience mechanism for the
+    # opaque-to-aud Cognito access tokens.
+    mcp_resource_identifier: str = "concept-graph"
+    # Public origin of THIS backend, no trailing slash (e.g.
+    # https://concept-graph-api.onrender.com). Used as the OAuth issuer the MCP
+    # client discovers and to build the protected-resource URL (<public>/mcp).
+    mcp_public_url: str = "http://127.0.0.1:8000"
+    # Redirect-URI prefixes the DCR shim (/register) accepts, comma-separated.
+    # Guards against registering clients that exfiltrate codes to arbitrary URLs.
+    mcp_allowed_redirect_schemes: str = "https://,http://localhost,http://127.0.0.1"
+
+    @property
+    def cognito_hosted_ui_base(self) -> str:
+        """Base URL of the Cognito Hosted UI OAuth endpoints
+        (https://<domain>.auth.<region>.amazoncognito.com), or "" if no domain
+        is configured yet."""
+        d = self.cognito_domain.strip().rstrip("/")
+        if not d:
+            return ""
+        if d.startswith("http"):
+            return d
+        return f"https://{d}.auth.{self.cognito_region}.amazoncognito.com"
+
+    @property
+    def mcp_issuer(self) -> str:
+        """OAuth issuer for the MCP auth flow — this backend's public origin."""
+        return self.mcp_public_url.rstrip("/")
+
+    @property
+    def mcp_resource_url(self) -> str:
+        """The protected resource identifier the access token is bound to."""
+        return f"{self.mcp_issuer}/mcp"
+
+    @property
+    def mcp_scopes(self) -> tuple[str, str]:
+        """(read, write) custom scope strings, e.g. ("concept-graph/read", ...)."""
+        ident = self.mcp_resource_identifier
+        return f"{ident}/read", f"{ident}/write"
 
     @property
     def cors_allow_origins(self) -> list[str]:

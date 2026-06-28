@@ -48,3 +48,25 @@ def verify_token(token: str) -> dict[str, Any]:
     if claims.get("token_use") != "id":
         raise jwt.InvalidTokenError("expected a Cognito id token")
     return claims
+
+
+def verify_access_token(token: str) -> dict[str, Any]:
+    """Verify a Cognito **access token** and return its claims.
+
+    Used by the MCP server (acting as an OAuth Resource Server). A Cognito access
+    token has no ``aud`` claim — its audience is expressed by the resource-server
+    scopes it carries — so audience is not verified here; the caller enforces the
+    required scope. Raises ``jwt.InvalidTokenError`` on a bad signature, issuer,
+    expiry, or token_use.
+    """
+    signing_key = _jwks_client().get_signing_key_from_jwt(token)
+    claims: dict[str, Any] = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        issuer=_issuer(),
+        options={"require": ["exp", "iss"], "verify_aud": False},
+    )
+    if claims.get("token_use") != "access":
+        raise jwt.InvalidTokenError("expected a Cognito access token")
+    return claims

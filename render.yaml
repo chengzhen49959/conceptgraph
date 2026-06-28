@@ -85,3 +85,15 @@ envVarGroups:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+      # MCP server (OAuth 2.1 resource server; AI-client external memory).
+      # COGNITO_DOMAIN = Hosted UI prefix; MCP_PUBLIC_URL = this web service's
+      # public URL (the OAuth issuer + the /mcp resource). NOTE: the AWS creds
+      # above must ALSO allow cognito-idp:CreateUserPoolClient /
+      # UpdateUserPoolClient / DescribeUserPoolClient for the /register DCR shim
+      # (plus one-time CreateUserPoolDomain / CreateResourceServer to provision).
+      - key: COGNITO_DOMAIN
+        sync: false
+      - key: MCP_RESOURCE_IDENTIFIER
+        value: concept-graph
+      - key: MCP_PUBLIC_URL
+        sync: false

@@ -1,6 +1,6 @@
 # PROJECT STATE (English)
 
-Updated: 2026-06-27
+Updated: 2026-06-28
 
 > Note: the product is a **student–researcher collaboration** tool — a student grows a research concept-graph from their library; a mentor reviews it asynchronously (highlight / flag / comment, with undo). `prd.md` and `arc.md` are reconciled to this (vision + data model + pipeline). Build milestones: **M1** workspaces+dashboard+share **[done]**, **M2** graph-edit+audit **[done]**, **M3** annotations+mentor-review **[done]**, **M4–M5** Slack two-way **[not started]**, **M6** digests+polish **[not started]**.
 
@@ -9,6 +9,12 @@ Updated: 2026-06-27
 **Done — foundation (auth & data layer):**
 - Auth end to end on **Amazon Cognito** (via Amplify): backend verifies the id token locally against the User Pool JWKS, no per-request round-trip (`backend/app/cognito.py`, `auth.py`). Frontend has landing / login / signup (email-code confirm) + an SSR route guard (`src/proxy.ts`); API clients forward the idToken as a Bearer. The login page renders a *Signed in ✓ — loading your workspace…* transition screen (a `done` state) between successful auth and the full-document dashboard redirect, since that redirect has a visible gap.
 - Async SQLAlchemy 2.0 + asyncpg with a pooled engine + `get_session` dependency; Alembic async migrations wired to `Base.metadata`.
+
+**Done — MCP server (F18: AI external memory + graph App), 2026-06-28:**
+- A FastMCP Streamable-HTTP server at `/mcp` on the web service exposes the knowledge base to a student's own AI client (Claude/ChatGPT/Cursor) as external memory. **OAuth 2.1 with Cognito as Authorization Server** (this backend is the Resource Server): discovery is FastMCP's `/.well-known/oauth-protected-resource` + an AS-metadata proxy (`routers/oauth_metadata.py`) that re-serves Cognito's endpoints and **injects** a `registration_endpoint`; a `/register` DCR shim (`routers/oauth_register.py`) creates per-client Cognito app clients (Cognito has no DCR); `cognito.verify_access_token` validates Cognito **access** tokens carrying a `concept-graph/read|write` scope (the browser ID-token path is untouched).
+- Tools `memory_search` / `memory_ask` / `graph_get` / `concept_get` / `memory_write` reuse new shared services `app/services/{search,graph_read,concept_read,clip}.py` — the HTTP routers (`search/ask/graph/concepts/imports`) were thinned to call the same code (no logic duplicated; 37 tests still green).
+- **Graph MCP App** (the headline): `show_graph` returns the graph + links `ui://graph/app.html` (`text/html;profile=mcp-app`), a Vite single-file React bundle (`mcp-app/`, reuses `react-force-graph-2d` + copied cluster/relation helpers) committed to `app/mcp/static/graph-app.html`. Renders inline in the host; node click → `concept_get`, panel search/ask → `memory_search`/`memory_ask`, all over the postMessage bridge (no direct network from the iframe).
+- Cognito OAuth provisioned via `backend/_provision_cognito.py` (domain `conceptgraph-auth`, resource server `concept-graph`, `mcp-static` client). **Verified end-to-end with a real Cognito access token**: 401-without-token, `initialize`, `tools/list` (7 tools), `tools/call` `graph_get`/`ping`. Read tools also verified against real Aurora data via the service layer.
 
 **Done — Aurora + full data model:**
 - Aurora PostgreSQL + pgvector **provisioned and reachable**; HNSW indexes + functional unique indexes created in the hand-authored first migration.
@@ -88,7 +94,7 @@ Updated: 2026-06-27
 
 ## 2. Issues / Risks
 - **Merge/dedup is built and hardened** (the core differentiator): alias fast path + ANN + LLM judge + per-workspace lock + ON CONFLICT backstop. Block recall widened to favour the judge (`block_distance` 0.40→0.50, `block_top_k` 5→8) after true synonyms like "Attention"/"Attention mechanism" (sim ~0.59) fell just under the old 0.60 cutoff and never reached the judge. A same-form false-merge eval is still TODO before enabling any auto-merge band (skip-the-judge above a high similarity). 
-- **The original single-user PRD loop is now complete** — RAG Q&A (F8) shipped 2026-06-27 alongside semantic search (F7), and everything upstream (ingest → graph) and the collaboration layer are in place. **F15 (Slack) is the sole remaining unbuilt feature.**
+- **The original single-user PRD loop is now complete** — RAG Q&A (F8) shipped 2026-06-27 alongside semantic search (F7), and everything upstream (ingest → graph) and the collaboration layer are in place. **F18 (MCP external memory + graph App) shipped 2026-06-28**, exposing the core loop to external AI clients. **F15 (Slack) is the sole remaining unbuilt feature.**
 - **Doc framing drift:** `prd.md`/`arc.md` predate the student–mentor collaboration pivot. Data model + pipeline are synced; the product vision in `prd.md` is not. Decide whether to formally re-vision the PRD.
 - **Cost / deploy:** Render workers need Starter (Free has no workers); Free web spins down — use Starter for any demo.
 - **Local run gotcha:** the `arq` worker is a *separate* process from the uvicorn API. If only the API runs, uploads enqueue but nothing drains the queue, so documents sit at `pending` forever (looks like a hang, not an error). Start it with `cd backend && uv run arq app.worker.WorkerSettings`. Images are now rejected at upload (415, no OCR).
@@ -99,7 +105,8 @@ Updated: 2026-06-27
 1. **Slack two-way integration (F15, M4–M5):** OAuth connect → outbound change/flag/digest posts → inbound slash-command/button actions (HMAC verify + encrypted bot-token storage).
 2. **Validate the deploy chain:** Render web `/api/health`, worker consuming the queue, Vercel frontend against the deployed Cognito pool.
 3. **Deliverables** (if still targeting the hackathon): demo video, architecture diagram, AWS-DB-usage screenshot, Vercel link + Team ID.
-4. **Live e2e for F7 + F8:** with the stack up + OpenAI reachable, run a real semantic query and a library question, and confirm concept + passage hits and the cited-concept graph highlight land as expected.
+4. **Live e2e for F7 + F8:** with the stack up + OpenAI reachable, run a real semantic query and a library question, and confirm concept + passage hits and the cited-concept graph highlight land as expected. (The MCP `memory_search`/`memory_ask` tools share this retrieval path, so they need the same OpenAI reachability to verify live.)
+5. **MCP go-live (F18):** set `COGNITO_DOMAIN` / `MCP_PUBLIC_URL` (= the Render web URL) / `MCP_RESOURCE_IDENTIFIER` in the Render secret group, grant the backend AWS creds `cognito-idp:Create/Update/DescribeUserPoolClient`, then connect a real host (e.g. a Claude custom connector pointed at the deployed `/mcp`) to render the graph App inline and confirm the browser OAuth dance + tool calls. (Local + m2m OAuth already verified.)
 
 ## 4. Key Dates (from the original hackathon brief — verify still current)
 - Submission deadline: 2026-06-29 17:00 PT (2026-06-30 08:00 GMT+8).
