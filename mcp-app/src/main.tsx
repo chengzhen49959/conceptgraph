@@ -27,7 +27,6 @@ function useSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-type Mode = "search" | "ask";
 type DisplayMode = "inline" | "fullscreen" | "pip";
 
 // Default inline height (px). The app reports this to the host via auto-resize;
@@ -36,15 +35,13 @@ type DisplayMode = "inline" | "fullscreen" | "pip";
 // switches the shell to 100vh.
 const INLINE_H = 640;
 
+// The host (Claude) IS the agent: it does search / Q&A itself by calling the
+// memory_search / memory_ask tools from chat. So this App is purely the visual
+// graph — the only in-app interaction is clicking a node to inspect it.
 function Root() {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ConceptDetail | null>(null);
-  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<Mode>("search");
-  const [query, setQuery] = useState("");
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const workspaceRef = useRef<string | undefined>(undefined);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("inline");
   // undefined = host hasn't told us yet (show the button optimistically);
@@ -105,36 +102,6 @@ function Root() {
     };
   }, [app, selectedId]);
 
-  const run = useCallback(async () => {
-    if (!app || !query.trim() || busy) return;
-    setBusy(true);
-    setAnswer(null);
-    try {
-      if (mode === "search") {
-        const r: { structuredContent?: { concepts?: { id: string }[] } } =
-          await app.callServerTool({
-            name: "memory_search",
-            arguments: { query, workspace_id: workspaceRef.current },
-          });
-        setHighlighted(new Set((r.structuredContent?.concepts ?? []).map((c) => c.id)));
-        setSelectedId(null);
-      } else {
-        const r: {
-          structuredContent?: { answer?: string; cited_concept_ids?: string[] };
-        } = await app.callServerTool({
-          name: "memory_ask",
-          arguments: { question: query, workspace_id: workspaceRef.current },
-        });
-        setAnswer(r.structuredContent?.answer ?? "(no answer)");
-        setHighlighted(new Set(r.structuredContent?.cited_concept_ids ?? []));
-      }
-    } catch (e) {
-      setAnswer(`Error: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }, [app, query, mode, busy]);
-
   const toggleFullscreen = useCallback(async () => {
     if (!app) return;
     const target: DisplayMode = displayMode === "fullscreen" ? "inline" : "fullscreen";
@@ -168,7 +135,6 @@ function Root() {
             width={size.w}
             height={size.h}
             selectedId={selectedId}
-            highlighted={highlighted}
             onSelect={setSelectedId}
           />
         ) : (
@@ -176,50 +142,22 @@ function Root() {
             {error ? `Connection error: ${error.message}` : "Loading graph…"}
           </div>
         )}
-      </div>
-
-      <aside style={S.panel}>
-        <div style={S.tabs}>
-          {(["search", "ask"] as Mode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{ ...S.tab, ...(mode === m ? S.tabActive : {}) }}
-            >
-              {m === "search" ? "Search" : "Ask"}
-            </button>
-          ))}
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            run();
-          }}
-        >
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "search" ? "Find concepts…" : "Ask your library…"}
-            style={S.input}
-          />
-        </form>
-
-        {busy && <div style={S.muted}>Working…</div>}
-
-        {mode === "ask" && answer && (
-          <div style={S.answer}>{answer}</div>
-        )}
-
-        {detail ? (
-          <ConceptPanel detail={detail} />
-        ) : (
-          <div style={S.muted}>
-            {graph
-              ? `${graph.nodes.length} concepts · ${graph.links.length} links · ${graph.clusters.length} topics. Click a node for detail.`
-              : null}
+        {graph && (
+          <div style={S.stats}>
+            {graph.nodes.length} concepts · {graph.links.length} links ·{" "}
+            {graph.clusters.length} topics · click a node for detail
           </div>
         )}
-      </aside>
+      </div>
+
+      {selectedId && (
+        <aside style={S.panel}>
+          <button onClick={() => setSelectedId(null)} style={S.close} title="Close">
+            ✕
+          </button>
+          {detail ? <ConceptPanel detail={detail} /> : <div style={S.muted}>Loading…</div>}
+        </aside>
+      )}
     </div>
   );
 }
@@ -279,6 +217,14 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     cursor: "pointer",
   },
+  stats: {
+    position: "absolute",
+    left: 10,
+    bottom: 8,
+    fontSize: 11,
+    color: "#6b7280",
+    pointerEvents: "none",
+  },
   placeholder: {
     position: "absolute",
     inset: 0,
@@ -298,38 +244,17 @@ const S: Record<string, React.CSSProperties> = {
     gap: 10,
     boxSizing: "border-box",
   },
-  tabs: { display: "flex", gap: 6 },
-  tab: {
-    flex: 1,
-    padding: "6px 0",
-    background: "#1f1f2e",
-    color: "#9aa0b5",
-    border: "1px solid #2a2a37",
-    borderRadius: 6,
+  close: {
+    alignSelf: "flex-end",
+    background: "transparent",
+    color: "#6b7280",
+    border: "none",
     cursor: "pointer",
-    fontSize: 13,
-  },
-  tabActive: { background: "#2d2d44", color: "#c0caf5" },
-  input: {
-    width: "100%",
-    padding: "8px 10px",
-    background: "#1a1a25",
-    color: "#c0caf5",
-    border: "1px solid #2a2a37",
-    borderRadius: 6,
-    fontSize: 13,
-    boxSizing: "border-box",
+    fontSize: 14,
+    padding: 0,
+    lineHeight: 1,
   },
   muted: { color: "#6b7280", fontSize: 12, lineHeight: 1.5 },
-  answer: {
-    background: "#1a1a25",
-    border: "1px solid #2a2a37",
-    borderRadius: 6,
-    padding: 10,
-    fontSize: 13,
-    lineHeight: 1.55,
-    whiteSpace: "pre-wrap",
-  },
   detail: { display: "flex", flexDirection: "column", gap: 8 },
   h2: { margin: 0, fontSize: 16, color: "#e0e3f0" },
   meta: { fontSize: 12, color: "#7aa2f7" },

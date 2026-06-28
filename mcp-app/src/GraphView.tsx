@@ -11,22 +11,21 @@ const SELECTED_COLOR = "#e0af68";
 /**
  * A lean force-directed concept graph — a subset of the web app's GraphCanvas:
  * dots sized by degree, coloured by cluster, with directional relation arrows.
- * When `highlighted` is non-empty, non-matching nodes dim (the search/ask focus
- * effect). Clicking a node calls `onSelect`.
+ * Clicking a node selects it (calls `onSelect`); the selected node is emphasised
+ * (larger, gold, ringed, labelled). Search/ask live in the chat with the agent,
+ * not here, so there is no focus/dim layer.
  */
 export function GraphView({
   data,
   width,
   height,
   selectedId,
-  highlighted,
   onSelect,
 }: {
   data: GraphData;
   width: number;
   height: number;
   selectedId: string | null;
-  highlighted: Set<string>;
   onSelect: (id: string | null) => void;
 }) {
   const color = useMemo(() => clusterColorMap(data.clusters), [data.clusters]);
@@ -55,8 +54,6 @@ export function GraphView({
     [data],
   );
 
-  const focusing = highlighted.size > 0;
-
   return (
     <ForceGraph2D
       graphData={graphData}
@@ -74,10 +71,9 @@ export function GraphView({
       nodeCanvasObjectMode={() => "replace"}
       nodeCanvasObject={(n: FGNode, ctx: CanvasRenderingContext2D, scale: number) => {
         const isSelected = n.id === selectedId;
-        const lit = !focusing || highlighted.has(n.id) || isSelected;
         const r = radiusOf(n) * (isSelected ? 1.4 : 1);
 
-        ctx.globalAlpha = lit ? 1 : 0.12;
+        ctx.globalAlpha = 1;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, 2 * Math.PI);
         ctx.fillStyle = isSelected ? SELECTED_COLOR : color(n.cluster_id);
@@ -89,9 +85,9 @@ export function GraphView({
           ctx.stroke();
         }
 
-        // Label when zoomed in, when this node is a focus match, or when selected.
-        if (scale > 1.6 || (focusing && highlighted.has(n.id)) || isSelected) {
-          ctx.globalAlpha = lit ? 0.95 : 0.2;
+        // Label when zoomed in or when selected.
+        if (scale > 1.6 || isSelected) {
+          ctx.globalAlpha = 0.95;
           ctx.font = `${11 / scale}px -apple-system, system-ui, sans-serif`;
           ctx.fillStyle = "rgba(190,195,210,0.95)";
           ctx.textAlign = "center";
