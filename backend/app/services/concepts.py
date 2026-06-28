@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from app.ai import embed_text, match_concept, merge_descriptions
 from app.config import get_settings
@@ -326,13 +327,27 @@ async def sweep_orphan_concepts(
             ~has_mention,
         )
     )
-    # Clusters emptied by the sweep (concept FK is ON DELETE SET NULL, so they'd
-    # otherwise linger as empty topics).
-    has_concept = select(Concept.id).where(Concept.cluster_id == Cluster.id).exists()
-    await session.execute(
-        delete(Cluster).where(
-            Cluster.workspace_id == workspace_id,
-            ~has_concept,
+    # Drop clusters the sweep emptied (concept FK is ON DELETE SET NULL, so they'd
+    # otherwise linger as empty topics). A cluster is empty only when nothing hangs
+    # under it: no concept AND no child cluster. The hierarchy is two-level — a leaf
+    # carries concepts, a parent carries none and groups leaves via `parent_id` — so
+    # testing concepts alone matched EVERY parent and cascade-deleted (parent_id is
+    # ON DELETE CASCADE) its still-populated leaves, NULL-ing out and un-topic-ing
+    # other documents' concepts workspace-wide. Removing an empty leaf can orphan its
+    # parent, so repeat to a fixpoint; two levels settle in at most two passes.
+    child = aliased(Cluster)
+    while True:
+        has_concept = (
+            select(Concept.id).where(Concept.cluster_id == Cluster.id).exists()
         )
-    )
+        has_child = select(child.id).where(child.parent_id == Cluster.id).exists()
+        emptied = await session.execute(
+            delete(Cluster).where(
+                Cluster.workspace_id == workspace_id,
+                ~has_concept,
+                ~has_child,
+            )
+        )
+        if not emptied.rowcount:
+            break
     return result.rowcount or 0
