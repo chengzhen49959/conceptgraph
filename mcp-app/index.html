@@ -6,10 +6,15 @@
     <title>Concept Graph</title>
     <style>
       html,
-      body,
-      #root {
+      body {
         margin: 0;
-        height: 100%;
+      }
+      /* No height:100% chain here. An MCP App is auto-resized to its CONTENT
+         height (the SDK observes body/documentElement and reports it to the
+         host). A 100% chain has no intrinsic height, so it collapses to the
+         host's tiny default (~250px) and just fills that. The React shell sets
+         an explicit pixel height instead, which the host grows the frame to. */
+      #root {
         width: 100%;
         overflow: hidden;
       }

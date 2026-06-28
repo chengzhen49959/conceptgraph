@@ -28,6 +28,13 @@ function useSize<T extends HTMLElement>() {
 }
 
 type Mode = "search" | "ask";
+type DisplayMode = "inline" | "fullscreen" | "pip";
+
+// Default inline height (px). The app reports this to the host via auto-resize;
+// the host grows the frame to it (capped at the host's max). Without an explicit
+// height the content collapses to the host's ~250px default. Fullscreen mode
+// switches the shell to 100vh.
+const INLINE_H = 640;
 
 function Root() {
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -39,6 +46,10 @@ function Root() {
   const [answer, setAnswer] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const workspaceRef = useRef<string | undefined>(undefined);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("inline");
+  // undefined = host hasn't told us yet (show the button optimistically);
+  // false = host confirmed fullscreen isn't available (hide it).
+  const [canFullscreen, setCanFullscreen] = useState<boolean | undefined>(undefined);
 
   const { app, isConnected, error } = useApp({
     appInfo: { name: "Concept Graph", version: "1.0.0" },
@@ -51,6 +62,12 @@ function Root() {
       a.ontoolinput = (p: { arguments?: Record<string, unknown> }) => {
         const wid = p?.arguments?.workspace_id;
         if (typeof wid === "string") workspaceRef.current = wid;
+      };
+      // Track the host's display mode + whether it offers fullscreen.
+      a.onhostcontextchanged = (ctx) => {
+        if (ctx.displayMode) setDisplayMode(ctx.displayMode);
+        if (ctx.availableDisplayModes)
+          setCanFullscreen(ctx.availableDisplayModes.includes("fullscreen"));
       };
     },
   });
@@ -118,11 +135,33 @@ function Root() {
     }
   }, [app, query, mode, busy]);
 
+  const toggleFullscreen = useCallback(async () => {
+    if (!app) return;
+    const target: DisplayMode = displayMode === "fullscreen" ? "inline" : "fullscreen";
+    try {
+      const r = await app.requestDisplayMode({ mode: target });
+      setDisplayMode(r.mode);
+      // Host ignored the fullscreen request -> it isn't supported; hide the button.
+      if (target === "fullscreen" && r.mode !== "fullscreen") setCanFullscreen(false);
+    } catch {
+      setCanFullscreen(false);
+    }
+  }, [app, displayMode]);
+
   const [canvasRef, size] = useSize<HTMLDivElement>();
 
   return (
-    <div style={S.shell}>
+    <div style={{ ...S.shell, height: displayMode === "fullscreen" ? "100vh" : INLINE_H }}>
       <div ref={canvasRef} style={S.canvas}>
+        {canFullscreen !== false && (
+          <button
+            onClick={toggleFullscreen}
+            style={S.expandBtn}
+            title={displayMode === "fullscreen" ? "Collapse" : "Expand"}
+          >
+            {displayMode === "fullscreen" ? "⤡ Collapse" : "⤢ Expand"}
+          </button>
+        )}
         {graph ? (
           <GraphView
             data={graph}
@@ -225,8 +264,21 @@ function ConceptPanel({ detail }: { detail: ConceptDetail }) {
 // Inline styles keep the bundle a single self-contained file. Colours lean dark;
 // useHostStyles overlays the host's theme variables where available.
 const S: Record<string, React.CSSProperties> = {
-  shell: { display: "flex", height: "100%", width: "100%", background: "#16161e", color: "#c0caf5" },
+  shell: { display: "flex", width: "100%", background: "#16161e", color: "#c0caf5" },
   canvas: { flex: 1, position: "relative", minWidth: 0 },
+  expandBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 5,
+    padding: "5px 10px",
+    fontSize: 12,
+    background: "#1f1f2e",
+    color: "#c0caf5",
+    border: "1px solid #2a2a37",
+    borderRadius: 6,
+    cursor: "pointer",
+  },
   placeholder: {
     position: "absolute",
     inset: 0,
