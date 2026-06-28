@@ -9,10 +9,13 @@ violated.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import anyio.to_thread
 import jwt
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.cognito import verify_access_token
 from app.config import get_settings
@@ -38,6 +41,28 @@ class CognitoAccessTokenVerifier(TokenVerifier):
             subject=claims["sub"],
             claims=claims,
         )
+
+
+def mcp_transport_security() -> TransportSecuritySettings:
+    """DNS-rebinding protection for the /mcp endpoint. FastMCP enables Host
+    validation when auth is set; behind a proxy (Render) the Host is the public
+    domain, so it must be allow-listed or every request 421s. Derived from
+    ``mcp_public_url`` so prod and local both work without hardcoding."""
+    s = get_settings()
+    host = urlparse(s.mcp_issuer).netloc  # e.g. concept-graph-api.onrender.com or 127.0.0.1:8000
+    base = host.split(":")[0]
+    allowed_hosts = [host, f"{base}:*", "localhost", "localhost:*", "127.0.0.1:*"]
+    allowed_origins = [
+        s.mcp_issuer,
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        "https://localhost:*",
+    ]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
 
 
 def mcp_auth_settings() -> AuthSettings:

@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from app.mcp.auth import CognitoAccessTokenVerifier, mcp_auth_settings
+from app.mcp.auth import (
+    CognitoAccessTokenVerifier,
+    mcp_auth_settings,
+    mcp_transport_security,
+)
 
 mcp_server = FastMCP(
     "Concept Graph Memory",
@@ -27,6 +31,7 @@ mcp_server = FastMCP(
     ),
     token_verifier=CognitoAccessTokenVerifier(),
     auth=mcp_auth_settings(),
+    transport_security=mcp_transport_security(),
     streamable_http_path="/mcp",
     stateless_http=True,
     json_response=True,
