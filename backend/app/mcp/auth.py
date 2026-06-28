@@ -33,7 +33,12 @@ class CognitoAccessTokenVerifier(TokenVerifier):
         if claims is None:
             try:
                 claims = await anyio.to_thread.run_sync(verify_access_token, token)
-            except jwt.InvalidTokenError:
+            except jwt.PyJWTError:
+                # Broad PyJWTError (not just InvalidTokenError): a non-Cognito
+                # bearer — e.g. an expired/foreign PAT that fell through above —
+                # has no matching JWKS key, so get_signing_key_from_jwt raises
+                # PyJWKClientError. Treat any JWT/JWKS failure as unauthenticated
+                # (return None -> 401) instead of letting it surface as a 500.
                 return None
         scopes = claims.get("scope", "").split()
         if read_scope not in scopes and write_scope not in scopes:
