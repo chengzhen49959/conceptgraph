@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   type Annotation,
@@ -15,6 +16,7 @@ import {
   deleteDocuments,
   getActivityUnread,
   getGraph,
+  getWorkerHealth,
   isProcessing,
   listAnnotations,
   listDocuments,
@@ -58,6 +60,9 @@ export function WorkspaceView({
   // starts EMPTY, so loadingGraph starts true and clears once the first fetch settles.
   const [loadingGraph, setLoadingGraph] = useState(true)
   const [graphError, setGraphError] = useState(false)
+  // Ingestion-worker liveness. Defaults true so the warning never flashes before
+  // the first probe; only polled (below) while documents are actually processing.
+  const [workerOnline, setWorkerOnline] = useState(true)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -135,6 +140,15 @@ export function WorkspaceView({
     }
   }, [workspaceId])
 
+  const refreshWorkerHealth = useCallback(async () => {
+    try {
+      setWorkerOnline((await getWorkerHealth()).online)
+    } catch {
+      // Endpoint unreachable (the API itself may be down) → treat as offline.
+      setWorkerOnline(false)
+    }
+  }, [])
+
   const refreshGraph = useCallback(async () => {
     try {
       setGraph(await getGraph(workspaceId))
@@ -196,6 +210,18 @@ export function WorkspaceView({
     const t = setInterval(refreshDocs, 2500)
     return () => clearInterval(t)
   }, [processing, refreshDocs])
+
+  // While ingesting, watch the worker too — a dead worker is the usual reason a
+  // clip is stuck at "Queued". Probe immediately, then poll on the same cadence.
+  useEffect(() => {
+    if (!processing) return
+    refreshWorkerHealth()
+    const t = setInterval(refreshWorkerHealth, 5000)
+    return () => clearInterval(t)
+  }, [processing, refreshWorkerHealth])
+  // Only an alarm when there's actually queued work the dead worker is blocking —
+  // so it can't linger after ingestion drains (no need to reset the flag).
+  const workerOffline = processing && !workerOnline
 
   // Re-fetch the graph whenever another document finishes (and once on mount).
   const doneCount = docs.filter((d) => d.status === 'done').length
@@ -527,6 +553,23 @@ export function WorkspaceView({
           onNavigateConcept={selectConcept}
         />
 
+        {workerOffline && (
+          <div
+            role="alert"
+            className="flex shrink-0 items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span>
+              Ingestion worker offline — queued clips won’t process until it’s
+              back. Start it with{' '}
+              <code className="rounded bg-amber-200/60 px-1 py-0.5 font-mono dark:bg-amber-900/50">
+                ./dev.sh
+              </code>{' '}
+              in <code className="font-mono">backend/</code>.
+            </span>
+          </div>
+        )}
+
         {/* `overflow-hidden` clips the chat dock while it's parked off-screen
             (translate-x-full) so the parked panel never spills a page scrollbar;
             the graph + panels each manage their own internal scrolling. */}
@@ -618,7 +661,7 @@ export function WorkspaceView({
           />
         </div>
 
-        <StatusBar graph={graph} documents={docs} />
+        <StatusBar graph={graph} documents={docs} workerOffline={workerOffline} />
       </SidebarInset>
 
       <SearchPalette

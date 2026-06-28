@@ -1,5 +1,6 @@
 'use client'
 
+import { AlertTriangle } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import {
   type DocumentOut,
@@ -13,9 +14,13 @@ import {
 export function StatusBar({
   graph,
   documents,
+  // True when docs are queued but the ingestion worker is down — the ingest label
+  // would otherwise read a misleading "Queued…" for a queue nothing is draining.
+  workerOffline = false,
 }: {
   graph: GraphData
   documents: DocumentOut[]
+  workerOffline?: boolean
 }) {
   const proc = documents.filter((d) => isProcessing(d.status))
   const failed = documents.filter((d) => d.status === 'failed').length
@@ -46,7 +51,14 @@ export function StatusBar({
         <span>{graph.clusters.length} clusters</span>
       </div>
       <div className="flex items-center gap-2">
-        <span>{ingest}</span>
+        {workerOffline ? (
+          <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="size-3" aria-hidden />
+            worker offline
+          </span>
+        ) : (
+          <span>{ingest}</span>
+        )}
         <ThemeToggle />
       </div>
     </footer>

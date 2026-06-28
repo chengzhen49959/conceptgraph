@@ -107,6 +107,14 @@ export function listDocuments(workspaceId?: string) {
   return apiClient<DocumentOut[]>(`/api/documents${q}`)
 }
 
+export type WorkerHealth = { online: boolean }
+
+/** Is the ingestion (arq) worker alive? Drives the "worker offline" warning so a
+ *  clip stuck at "Queued" has a visible cause instead of an endless spinner. */
+export function getWorkerHealth() {
+  return apiClient<WorkerHealth>('/api/health/worker')
+}
+
 export function createDocument(body: {
   filename: string
   content_type: string

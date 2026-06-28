@@ -558,7 +558,7 @@ export function NavSidebar({
                 No documents yet.
               </p>
             ) : (
-              <SidebarMenu className="max-h-[34vh] overflow-y-auto">
+              <SidebarMenu>
                 {documents.map((doc) => (
                   <DocumentRow
                     key={doc.id}
