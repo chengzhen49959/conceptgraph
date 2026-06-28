@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     # Redirect-URI prefixes the DCR shim (/register) accepts, comma-separated.
     # Guards against registering clients that exfiltrate codes to arbitrary URLs.
     mcp_allowed_redirect_schemes: str = "https://,http://localhost,http://127.0.0.1"
+    # Secret that signs Personal Access Tokens (PATs) — the static-bearer fast
+    # path for clients that paste one token instead of running OAuth (Claude
+    # Desktop / Cursor via `mcp-remote --header`). Empty disables PATs entirely
+    # (verify_pat returns None). The running server and the minting host must
+    # share the SAME value or minted tokens won't verify; rotating it revokes
+    # every PAT at once.
+    mcp_pat_secret: str = ""
 
     @property
     def cognito_hosted_ui_base(self) -> str:

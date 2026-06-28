@@ -19,6 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.cognito import verify_access_token
 from app.config import get_settings
+from app.mcp.pat import verify_pat
 
 
 class CognitoAccessTokenVerifier(TokenVerifier):
@@ -26,11 +27,14 @@ class CognitoAccessTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         read_scope, write_scope = get_settings().mcp_scopes
-        try:
-            # JWKS verification is a local, CPU-bound signature check.
-            claims = await anyio.to_thread.run_sync(verify_access_token, token)
-        except jwt.InvalidTokenError:
-            return None
+        # Try the PAT fast path first (a local HMAC check; None if not a PAT),
+        # then fall back to a Cognito access token (JWKS, CPU-bound, off-thread).
+        claims = verify_pat(token)
+        if claims is None:
+            try:
+                claims = await anyio.to_thread.run_sync(verify_access_token, token)
+            except jwt.InvalidTokenError:
+                return None
         scopes = claims.get("scope", "").split()
         if read_scope not in scopes and write_scope not in scopes:
             return None
