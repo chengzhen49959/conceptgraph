@@ -54,11 +54,19 @@ export function WorkspaceSwitcher({
               tooltip={currentName}
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <span className="flex aspect-square size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
+              <span
+                className={
+                  // The personal orb is a self-contained badge that fills the
+                  // tile; other workspaces show a glyph inside the accent tile.
+                  currentIsPersonal
+                    ? 'flex aspect-square size-6 shrink-0 items-center justify-center'
+                    : 'flex aspect-square size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground'
+                }
+              >
                 <ProjectIcon
                   name={current?.icon}
                   personal={currentIsPersonal}
-                  size={14}
+                  size={currentIsPersonal ? 24 : 14}
                 />
               </span>
               <span className="flex-1 truncate text-left text-sm font-medium">

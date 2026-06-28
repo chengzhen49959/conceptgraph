@@ -27,7 +27,6 @@ import {
   Experiment,
   Flask,
   Formula,
-  Home,
   Hourglass,
   Microscope,
   NetworkTree,
@@ -94,16 +93,15 @@ export const PROJECT_ICONS: Record<string, IconPark> = {
 export const PROJECT_ICON_NAMES = Object.keys(PROJECT_ICONS)
 
 export const DEFAULT_ICON = 'Book'
-// The personal workspace has a fixed identity; its stored icon (if any) is ignored.
-const PERSONAL_ICON = Home
 
 /**
- * Render a workspace icon as a bare monochrome glyph that inherits the
- * surrounding text colour — matching the shadcn/lucide icons used elsewhere in
- * the UI (no accent colour, no tinted tile). `name` is an IconPark icon name;
- * unknown/empty falls back to the default. Pass `personal` for the personal
- * workspace: a stored icon still wins, but with none it shows the Home glyph
- * instead of the generic default.
+ * Render a workspace icon. Custom workspaces (and any with a stored icon) get a
+ * bare monochrome IconPark glyph that inherits the surrounding text colour —
+ * matching the shadcn/lucide icons used elsewhere (no accent colour, no tinted
+ * tile). `name` is an IconPark icon name; unknown/empty falls back to the
+ * default. The **personal** workspace has a fixed brand identity: with no stored
+ * icon it shows the app's orb mark (`/orb.png`, a raster badge — not a glyph, so
+ * it does not inherit `currentColor`); a stored icon still wins.
  */
 export function ProjectIcon({
   name,
@@ -116,8 +114,24 @@ export function ProjectIcon({
   personal?: boolean
   className?: string
 }) {
-  const Icon =
-    PROJECT_ICONS[name ?? ''] ?? (personal ? PERSONAL_ICON : PROJECT_ICONS[DEFAULT_ICON])
+  const stored = PROJECT_ICONS[name ?? '']
+  if (personal && !stored) {
+    // eslint-disable-next-line @next/next/no-img-element -- a tiny static brand
+    // asset; next/image's optimisation pipeline buys nothing at icon sizes.
+    return (
+      <img
+        src="/orb.png"
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        // A white rounded app-icon badge; the ring gives a hairline edge so the
+        // white badge still separates from a light background.
+        className={`shrink-0 rounded-[22%] object-contain ring-1 ring-black/10 ${className}`}
+      />
+    )
+  }
+  const Icon = stored ?? PROJECT_ICONS[DEFAULT_ICON]
   return (
     <Icon
       theme="outline"

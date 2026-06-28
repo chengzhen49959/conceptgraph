@@ -13,13 +13,25 @@ endpoint exactly ``/mcp`` (no trailing-slash redirect).
 
 from __future__ import annotations
 
+import base64
+from pathlib import Path
+
 from mcp.server.fastmcp import FastMCP
+from mcp.types import Icon
 
 from app.mcp.auth import (
     CognitoAccessTokenVerifier,
     mcp_auth_settings,
     mcp_transport_security,
 )
+
+# The connector icon shown by MCP clients. Read once at import and inlined as a
+# self-contained data URI so no static route / external host is needed (the data
+# URI travels inside the ``initialize`` response's server info). ``icon.png``
+# lives beside this module so it ships with the backend deploy regardless of CWD.
+_icon_data_uri = "data:image/png;base64," + base64.b64encode(
+    (Path(__file__).parent / "icon.png").read_bytes()
+).decode("ascii")
 
 mcp_server = FastMCP(
     "Concept Graph Memory",
@@ -29,6 +41,7 @@ mcp_server = FastMCP(
         "grounded in it (with citations), browse the concept graph, and save new "
         "notes back into it."
     ),
+    icons=[Icon(src=_icon_data_uri, mimeType="image/png", sizes=["512x512"])],
     token_verifier=CognitoAccessTokenVerifier(),
     auth=mcp_auth_settings(),
     transport_security=mcp_transport_security(),
