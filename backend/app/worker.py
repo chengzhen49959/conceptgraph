@@ -28,6 +28,7 @@ from app.db import _sessionmaker, get_engine
 from app.models import Chunk, Document
 from app.services.chunk import chunk_text
 from app.services.clustering import recompute_clusters
+from app.services.worker_health import WORKER_HEALTH_INTERVAL
 from app.services.concepts import (
     add_aliases,
     add_mentions,
@@ -529,6 +530,12 @@ class WorkerSettings:
     )
     on_startup = on_startup
     on_shutdown = on_shutdown
+    # Refresh the Redis health key on a short interval (arq's default is 1h) so the
+    # API can tell within seconds when this worker has died — a dead worker is the
+    # usual reason a clip sits stuck at "Queued". arq deletes the key on a clean
+    # shutdown and TTLs it just past this interval, so a hard kill expires it too.
+    # Read back via app.services.worker_health.worker_is_online.
+    health_check_interval = WORKER_HEALTH_INTERVAL
     max_jobs = 4
     # The single source for the job ceiling; the merge lock's TTL is tied to it
     # (see _JOB_TIMEOUT / _merge_lock). 600s wasn't enough even before network

@@ -1,0 +1,3 @@
+
+# tiktoken vocab cache (downloaded; avoids runtime fetch that can hang behind GFW)
+.tiktoken-cache/

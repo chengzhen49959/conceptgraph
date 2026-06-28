@@ -1,0 +1,10 @@
+# Local/Render process map. Two long-running processes — the API and the
+# ingestion worker — must BOTH be up; a missing worker silently piles clips up
+# as "Queued" (the worker is a separate process, not part of the web server).
+#
+# Locally, prefer ./dev.sh — it adds an auto-restart loop around the worker
+# (honcho/foreman tear everything down when one process exits; the worker is the
+# fragile one and must come back on its own). This Procfile documents the two
+# processes for honcho users and for the Render worker service.
+web: uv run uvicorn app.main:app --port 8000
+worker: uv run arq app.worker.WorkerSettings

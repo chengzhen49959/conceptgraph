@@ -2,9 +2,20 @@
 content hash per chunk for idempotent re-ingestion."""
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+
+# Where tiktoken caches the cl100k_base vocab. Pin it to a repo-local dir so the
+# vocab is read from disk on every cold worker instead of re-downloaded from
+# openaipublic.blob.core.windows.net. That download is unreliable behind some
+# networks (TLS resets / EOF), and because chunk_text() is a *synchronous* call on
+# the worker's event loop, a stalled fetch freezes the whole ingest worker mid-chunk
+# (the document hangs at "chunking" forever). Pre-populate this dir once (the blob is
+# fetchable via curl even where Python's TLS isn't); on networks where the download
+# works, tiktoken just fills it on first use.
+_TIKTOKEN_CACHE = os.path.join(os.path.dirname(__file__), "..", "..", ".tiktoken-cache")
 
 
 @dataclass
@@ -15,6 +26,9 @@ class ChunkData:
 
 @lru_cache
 def _encoder():
+    # setdefault: an explicit TIKTOKEN_CACHE_DIR in the environment still wins.
+    os.environ.setdefault("TIKTOKEN_CACHE_DIR", os.path.abspath(_TIKTOKEN_CACHE))
+
     import tiktoken
 
     # Model-agnostic tokenizer: we only need approximate token counts to size

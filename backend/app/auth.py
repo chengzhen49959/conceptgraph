@@ -29,7 +29,13 @@ def get_current_user(
     token = credentials.credentials
     try:
         claims = verify_token(token)
-    except jwt.InvalidTokenError:
+    except jwt.PyJWTError:
+        # Broad PyJWTError, not just InvalidTokenError: a token whose key id isn't
+        # in the pool's JWKS (rotated-out / foreign token) makes
+        # get_signing_key_from_jwt raise PyJWKClientError, and a JWKS fetch blip
+        # raises PyJWKClientConnectionError — both are PyJWTError but NOT
+        # InvalidTokenError, so the narrow catch let them surface as a 500 on every
+        # authed endpoint. Treat any JWT/JWKS failure as unauthenticated (401).
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
 
     return CurrentUser(id=claims["sub"], email=claims.get("email"), token=token)
