@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # retrieved passages. Quality + faithful citation matter (nano drops/garbles
     # citations and over-summarises), so mini, not nano.
     answer_model: str = "gpt-5.4-mini"
+    # In-product conversational agent (F-chat): a multi-step, tool-using loop that
+    # plans, searches the library, and walks the concept graph before answering.
+    # Reliable tool-calling + faithful citation matter (nano drops tool calls and
+    # garbles [n] citations), so mini, not nano.
+    agent_model: str = "gpt-5.4-mini"
 
     # --- Pipeline tuning -------------------------------------------------------
     # NOTE: the embedding dimension is a DDL-fixed constant (the vector column
@@ -85,6 +90,27 @@ class Settings(BaseSettings):
     # the graph, so two differently-named near-duplicates in ONE document can both
     # create a node — the manual dedup_sweep is the repair pass for that.
     merge_concurrency: int = 8
+
+    # --- Conversational agent + retrieval tuning -------------------------------
+    # The agent runs a bounded tool loop: each iteration is one LLM call that may
+    # request tool calls (search / graph-walk); the loop ends when the model
+    # answers with no further calls. Bound the iterations so a confused plan can't
+    # spin forever — hitting the cap forces one final no-tools answer.
+    agent_max_tool_iters: int = 6
+    # Cap on distinct passages a single turn may register for citation. Bounds the
+    # context accumulated across many tool calls (token budget); passages past the
+    # cap are returned to the model without a [n] marker.
+    agent_max_passages: int = 30
+    # Honesty floor for retrieval, as cosine SIMILARITY (1 − distance), 0..1. When
+    # the best-matching concept scores below this, concept-first retrieval reports
+    # "not in the library (closest is X)" instead of forcing irrelevant results, so
+    # the agent says so plainly rather than grounding an answer in noise.
+    retrieval_min_score: float = 0.30
+    # Over-fetch width before MMR / RRF trims to the final passage set (Phase 3).
+    retrieval_candidate_k: int = 30
+    # MMR relevance-vs-diversity knob (Phase 3): 1.0 = pure relevance, 0.0 = pure
+    # diversity. 0.5 favours breadth across papers over near-duplicate chunks.
+    mmr_lambda: float = 0.5
 
     # --- Web clip ingress ------------------------------------------------------
     # Hard ceiling on a single clip's main text (characters). A clipped page is

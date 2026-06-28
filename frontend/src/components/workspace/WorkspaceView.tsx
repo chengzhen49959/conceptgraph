@@ -32,6 +32,7 @@ import { GraphEditToolbar } from './GraphEditToolbar'
 import { ConceptPanel } from './ConceptDetail'
 import { TopicPanel } from './TopicDetail'
 import { SearchPalette } from './SearchPalette'
+import { ChatPanel } from './ChatPanel'
 import { StatusBar } from './StatusBar'
 
 const EMPTY: GraphData = { nodes: [], links: [], clusters: [] }
@@ -62,6 +63,7 @@ export function WorkspaceView({
   const [busy, setBusy] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [activityUnread, setActivityUnread] = useState(0)
 
   // Concepts a RAG answer relies on (F8). Set live as an answer streams in the
@@ -81,15 +83,29 @@ export function WorkspaceView({
   // lights its whole cluster and centres it in the canvas. Focus and concept
   // selection are mutually exclusive — picking either clears the other.
   const [focusedTopicId, setFocusedTopicId] = useState<string | null>(null)
+  // The right edge holds at most ONE panel — detail, topic, or chat — so the graph
+  // is only ever narrowed by a single panel's width and stays comfortably centred.
+  // Opening any one of them closes the others.
   const selectConcept = useCallback((id: string | null) => {
     setFocusedTopicId(null)
     setAskConceptIds(new Set()) // a manual pick supersedes the RAG highlight
     setSelectedId(id)
+    if (id) setChatOpen(false)
   }, [])
   const focusTopic = useCallback((id: string) => {
     setSelectedId(null)
     setAskConceptIds(new Set())
     setFocusedTopicId(id)
+    setChatOpen(false)
+  }, [])
+  const toggleChat = useCallback(() => {
+    setChatOpen((open) => {
+      if (!open) {
+        setSelectedId(null)
+        setFocusedTopicId(null)
+      }
+      return !open
+    })
   }, [])
 
   // Source view: opening a document from the sidebar swaps the canvas for the
@@ -443,6 +459,13 @@ export function WorkspaceView({
     return () => clearInterval(t)
   }, [isShared, refreshGraph, refreshAnnotations, refreshActivityUnread])
 
+  // Exactly one right-edge panel can be open at a time, all the same width (w-96 =
+  // 384px). Shrink the canvas by that width when any is open so the graph keeps a
+  // full, unobscured, centred viewport beside the panel — never beneath it.
+  // GraphCanvas's ResizeObserver re-fits the view as this margin animates.
+  const rightPanelOpen = chatOpen || !!selectedNode || !!focusedCluster
+  const canvasInset = rightPanelOpen ? 384 : 0
+
   // The workspace graph canvas. Kept as one factory so its wiring lives in one place.
   const graphView = () => (
     <GraphCanvas
@@ -504,7 +527,10 @@ export function WorkspaceView({
           onNavigateConcept={selectConcept}
         />
 
-        <div className="relative min-h-0 min-w-0 flex-1">
+        {/* `overflow-hidden` clips the chat dock while it's parked off-screen
+            (translate-x-full) so the parked panel never spills a page scrollbar;
+            the graph + panels each manage their own internal scrolling. */}
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {canEdit && (
             <GraphEditToolbar
               workspaceId={workspaceId}
@@ -514,14 +540,20 @@ export function WorkspaceView({
               }}
             />
           )}
-          {graphView()}
+          {/* Canvas shrinks from the right to clear any open panels (chat / detail),
+              keeping the graph fully visible beside them rather than under them. */}
+          <div
+            className="h-full transition-[margin] duration-200 ease-out"
+            style={{ marginRight: canvasInset }}
+          >
+            {graphView()}
+          </div>
 
-          {/* Detail panels OVERLAY the canvas area (this container is `relative`),
-              below the topbar and above the status bar — so they never push/resize the
-              canvas (which made the graph jump) while the header search/options stay
-              reachable. They slide in over the right edge of the graph. */}
+          {/* Detail panels dock at the right edge, below the topbar and above the
+              status bar (this container is `relative`); the canvas margin above keeps
+              them from covering the graph. They slide in from the right edge. */}
           {selectedNode && (
-            <aside className="absolute inset-y-0 right-0 z-20 flex w-80 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
+            <aside className="absolute inset-y-0 right-0 z-20 flex w-96 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
               <ConceptPanel
                 node={selectedNode}
                 graph={graph}
@@ -539,7 +571,7 @@ export function WorkspaceView({
           )}
 
           {focusedCluster && (
-            <aside className="absolute inset-y-0 right-0 z-20 flex w-80 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
+            <aside className="absolute inset-y-0 right-0 z-20 flex w-96 border-l bg-background shadow-xl animate-in slide-in-from-right duration-200">
               <TopicPanel
                 cluster={focusedCluster}
                 graph={graph}
@@ -548,6 +580,42 @@ export function WorkspaceView({
               />
             </aside>
           )}
+
+          {/* Floating toggle for the research-agent chat dock, bottom-left so it
+              clears the bottom-right zoom controls. */}
+          <button
+            onClick={toggleChat}
+            className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-sm font-medium shadow-lg hover:bg-muted"
+          >
+            {/* IconPark "message" (outline) — inherits currentColor so it reads as a
+                light, muted line icon rather than the jarring colour emoji. */}
+            <svg
+              aria-hidden
+              viewBox="0 0 48 48"
+              className="h-4 w-4 text-muted-foreground"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M44 6H4v31h9v4l10-4h21V6Z" />
+              <path d="M14 19h20M14 27h14" />
+            </svg>
+            {chatOpen ? 'Hide agent' : 'Ask the agent'}
+          </button>
+
+          {/* Always mounted (slides in/out) so the conversation survives toggling;
+              re-mounts on workspace change to reset to that workspace's library. */}
+          <ChatPanel
+            key={workspaceId ?? 'personal'}
+            open={chatOpen}
+            onClose={() => setChatOpen(false)}
+            workspaceId={workspaceId}
+            nodes={graph.nodes}
+            onCited={setAskConceptIds}
+            onSelectConcept={selectConcept}
+          />
         </div>
 
         <StatusBar graph={graph} documents={docs} />

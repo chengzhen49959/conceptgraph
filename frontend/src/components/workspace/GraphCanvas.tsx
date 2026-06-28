@@ -84,6 +84,21 @@ const endpointId = (e: string | FGNode) => (typeof e === 'object' ? e.id : e)
 
 // Approximate label height in CSS px (font ~11px, line-height:1).
 const LABEL_H = 14
+// Gap (CSS px) from a dot to its label, and the breathing room enforced between two
+// labels when scoring overlap. Small enough that a label still reads as belonging to
+// its own dot.
+const LABEL_GAP = 4
+const LABEL_PAD = 2
+
+// Axis-aligned screen-space box and the overlap area between two of them (0 when
+// disjoint). The label placer scores each candidate side by how much it overlaps the
+// labels already placed, then takes the least-crowded one.
+type Box = { l: number; r: number; t: number; b: number }
+const overlapArea = (a: Box, b: Box) => {
+  const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l)
+  const oy = Math.min(a.b, b.b) - Math.max(a.t, b.t)
+  return ox > 0 && oy > 0 ? ox * oy : 0
+}
 // Off-screen slack (CSS px) for the label viewport cull: a label whose dot sits
 // this far outside the canvas can never be read, so it's dropped. Generous enough
 // (≈ a wide label's half-width) that nothing pops at the edges as you pan.
@@ -95,8 +110,10 @@ const VP_MARGIN = 140
 // node-neighbourhood and cluster fits use their own tighter pads.
 const OVERVIEW_PAD = 120
 
-// One HTML label element plus the cached node it tracks.
-type Label = { el: HTMLDivElement; n: FGNode }
+// One HTML label element, the node it tracks, and its measured width (CSS px). The
+// width is cached on build/rename so the per-frame placement can box the label
+// without touching the DOM.
+type Label = { el: HTMLDivElement; n: FGNode; w: number }
 
 // Node right-click menu state: anchored at viewport coords, acting on one node.
 type Menu = { x: number; y: number; node: FGNode }
@@ -174,8 +191,9 @@ export function GraphCanvas({
   // Passive camera: fit the view only on first layout, never on a drag/add/refetch
   // re-heat. onEngineStop consumes this once.
   const pendingFitRef = useRef(true)
-  // True while a node is being dragged — syncLabels skips its O(n²) de-overlap
-  // pass during the drag to keep it smooth.
+  // True for the duration of a node drag. Guards the once-per-drag bookkeeping in
+  // onNodeDrag (clearing every other node's pin on the first frame); the label
+  // de-overlap pass is cheap (n visible labels), so it keeps running during the drag.
   const draggingRef = useRef(false)
   // Selecting a node pans its 1-hop neighbourhood to the visible centre (keeping the
   // current zoom); deselecting zooms back OUT to the whole-graph overview. Both must
@@ -192,11 +210,6 @@ export function GraphCanvas({
   // forces/topology reheat that re-settles pushes the reveal out — the graph is shown
   // only once it's actually stable, never mid-motion.
   const revealTimerRef = useRef<number>(0)
-  // The selection the select-zoom last fired for. Mounting the detail panel shrinks
-  // the canvas and re-fires the select effect for the SAME node; this guard fits once
-  // per selection (on the click) and ignores that resize re-fire, so the camera flies
-  // in once instead of jumping when the panel lands.
-  const lastFitSelRef = useRef<string | null>(null)
 
   const [Comp, setComp] = useState<ForceGraphComponent | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -503,7 +516,6 @@ export function GraphCanvas({
     // so a later unrelated resize leaves a manually-adjusted camera alone. The visible
     // filter keeps it from framing hidden orphans / hidden topics.
     if (!selectedId) {
-      lastFitSelRef.current = null // next selection should fit again
       // Selecting a topic clears selectedId in the same batch (WorkspaceView's
       // focusTopic); the topic effect then owns the camera, so step aside.
       if (focusedClusterId) {
@@ -520,37 +532,31 @@ export function GraphCanvas({
     }
 
     recenterArmedRef.current = false
-    // The detail panel overlays the canvas (no resize), so this fires once per
-    // selection; the guard also ignores any unrelated re-fire (window resize) for the
-    // same node so we never re-animate an already-framed view.
-    if (lastFitSelRef.current === selectedId) return
     const node = graphData.nodes.find((n) => n.id === selectedId)
     if (!node || node.x == null || node.y == null) return
-    lastFitSelRef.current = selectedId
     const nx = node.x
     const ny = node.y
 
-    // Put the clicked node at the centre of the VISIBLE canvas (left of the overlay
-    // panel) and zoom so its neighbours fit around it. ONE coordinated lerp: centerAt
-    // + zoom run over the same duration, so it reads as a single smooth move — not the
-    // zoom-then-pan-then-zoom that zoomToFit produced (it framed the node+neighbour
-    // bounding box, leaving the clicked node in a corner).
+    // The open panel shrinks the canvas (WorkspaceView's canvasInset), so `size` is
+    // already the *visible* viewport — centre the clicked node in it, no panel-width
+    // offset. ONE coordinated lerp: centerAt + zoom over the same duration read as a
+    // single smooth move (not zoomToFit's zoom-then-pan-then-zoom, which left the
+    // clicked node in a corner). Re-running on a size change (the panel sliding in/out)
+    // keeps the node centred as the viewport animates.
     const ids = setOf(selectedId)
     let radius = 0
     for (const n of graphData.nodes) {
       if (!ids.has(n.id) || n.x == null || n.y == null || !nodeVisible(n)) continue
       radius = Math.max(radius, Math.hypot(n.x - nx, n.y - ny))
     }
-    const PANEL_W = 320 // the w-80 overlay panel
-    const visHalf = Math.max(60, Math.min(size.w - PANEL_W, size.h) / 2 - 70)
+    const visHalf = Math.max(60, Math.min(size.w, size.h) / 2 - 70)
     // Cap the zoom-in so a node with tightly-clustered neighbours doesn't slam to a
     // huge magnification; a node with no neighbours gets a gentle nudge in.
     const MAX_SELECT_ZOOM = 2.2
     const k =
       radius > 0 ? Math.min(MAX_SELECT_ZOOM, Math.max(0.4, visHalf / radius)) : 1.5
-    const cx = nx + PANEL_W / 2 / k // bias right so the node lands in the visible area
     const raf = requestAnimationFrame(() => {
-      fg.centerAt(cx, ny, 500)
+      fg.centerAt(nx, ny, 500)
       fg.zoom(k, 500)
     })
     return () => cancelAnimationFrame(raf)
@@ -633,10 +639,11 @@ export function GraphCanvas({
   }, [Comp, settings.forces, radiusOf])
 
   // Position + show/hide every HTML label for the current frame. Called on each
-  // canvas frame (onRenderFramePost) and once after (re)building the elements.
-  // `k` is the current zoom. Every visible on-screen node keeps its label — labels
-  // are never thinned by zoom or by touching one another (the Forces panel spreads
-  // the dots to make room). Only an explicit filter or an active highlight hides one.
+  // canvas frame (onRenderFramePost) and once after (re)building the elements. `k` is
+  // the current zoom. Every visible on-screen node keeps its label — labels are never
+  // thinned by zoom or by touching one another; each is instead placed on its
+  // least-crowded side (below / above / right / left of its dot) so two names never sit
+  // on top of each other. Only an explicit filter or an active highlight hides a label.
   const syncLabels = (k: number) => {
     const fg = fgRef.current
     if (!fg) return
@@ -649,24 +656,19 @@ export function GraphCanvas({
     for (const v of all)
       posRef.current.set(v.n.id, { x: v.n.x as number, y: v.n.y as number })
 
+    // Phase 1 — decide which labels are shown and where their dot sits on screen. A
+    // label is hidden (display:none) when its node is filtered out (orphan / hidden
+    // topic / local-graph scope), when a highlight is active and the node is outside
+    // the lit set, or when its dot sits far enough off-canvas to be unreadable.
+    // Survivors carry their screen position into the placement pass below.
+    type Slot = { v: Label; sx: number; sy: number; r: number; focus: boolean }
+    const shown: Slot[] = []
     for (const v of all) {
       const n = v.n
-      // Hidden by an explicit filter (orphan / hidden topic / local-graph scope).
-      if (!nodeVisible(n)) {
+      if (!nodeVisible(n) || (highlightIds && !highlightIds.has(n.id))) {
         v.el.style.display = 'none'
         continue
       }
-      // When something is active (hover / select / sidebar focus), only its highlight
-      // set is labelled and the rest dim away. A resting graph has no active set, so
-      // every visible node keeps its label.
-      if (active && !highlightIds.has(n.id)) {
-        v.el.style.display = 'none'
-        continue
-      }
-      const focus = n.id === selectedId || n.id === hoverId
-      const show = focus || active
-      // Viewport cull: a label whose dot sits well off-canvas can't be read. Purely a
-      // perf/clarity bound — it never thins the on-screen set.
       const sp = fg.graph2ScreenCoords(n.x as number, n.y as number)
       if (
         sp.x < -VP_MARGIN ||
@@ -677,15 +679,77 @@ export function GraphCanvas({
         v.el.style.display = 'none'
         continue
       }
-      // Centred directly below the dot (Obsidian's placement). No de-overlap pass:
-      // overlapping names render as-is rather than being dropped — showing them all
-      // is the rule; node spread is what keeps them legible.
-      const screenR = radiusOf(n) * k
-      const lx = sp.x
-      const ly = sp.y + screenR + 4 + LABEL_H / 2
+      shown.push({
+        v,
+        sx: sp.x,
+        sy: sp.y,
+        r: radiusOf(n) * k,
+        focus: n.id === selectedId || n.id === hoverId,
+      })
+    }
+
+    // Phase 2 — place labels greedily in priority order (the focused node first, then
+    // hubs by degree, then a stable id tiebreak) so the most important names claim
+    // clean space and lesser nodes dodge around them. Each label tries the eight
+    // positions around its dot (four sides, then four diagonals); the first that clears
+    // every already-placed label wins, and if none is clear it takes the one that
+    // overlaps the least. So a label is always shown — never dropped, and never left
+    // sitting on a neighbour when an open side exists. This is the general fix for the
+    // "two names occlude" bug: it holds for any node, any title length, and degrades
+    // gracefully as the graph gets denser.
+    shown.sort((a, b) => {
+      if (a.focus !== b.focus) return a.focus ? -1 : 1
+      const da = degreeOf.get(a.v.n.id) ?? 0
+      const db = degreeOf.get(b.v.n.id) ?? 0
+      if (da !== db) return db - da
+      return a.v.n.id < b.v.n.id ? -1 : 1
+    })
+
+    const boxAt = (x: number, y: number, w: number): Box => ({
+      l: x - w / 2 - LABEL_PAD,
+      r: x + w / 2 + LABEL_PAD,
+      t: y - LABEL_H / 2 - LABEL_PAD,
+      b: y + LABEL_H / 2 + LABEL_PAD,
+    })
+    const placed: Box[] = []
+    for (const s of shown) {
+      const { v, sx, sy, r } = s
+      const w = v.w
+      // Candidate label centres around the dot, in preference order: the four
+      // orthogonal sides first (below is Obsidian's canonical spot, so a label returns
+      // there whenever it's free), then the four diagonals as fallbacks. More
+      // candidates ⇒ fewer names forced to overlap when the dots pack in close.
+      const dr = r * Math.SQRT1_2 // diagonal dot offset (r along each axis)
+      const anchors = [
+        { x: sx, y: sy + r + LABEL_GAP + LABEL_H / 2 }, // below
+        { x: sx, y: sy - r - LABEL_GAP - LABEL_H / 2 }, // above
+        { x: sx + r + LABEL_GAP + w / 2, y: sy }, // right
+        { x: sx - r - LABEL_GAP - w / 2, y: sy }, // left
+        { x: sx + dr + LABEL_GAP + w / 2, y: sy + dr + LABEL_GAP + LABEL_H / 2 }, // ↘
+        { x: sx - dr - LABEL_GAP - w / 2, y: sy + dr + LABEL_GAP + LABEL_H / 2 }, // ↙
+        { x: sx + dr + LABEL_GAP + w / 2, y: sy - dr - LABEL_GAP - LABEL_H / 2 }, // ↗
+        { x: sx - dr - LABEL_GAP - w / 2, y: sy - dr - LABEL_GAP - LABEL_H / 2 }, // ↖
+      ]
+      let bestBox = boxAt(anchors[0].x, anchors[0].y, w)
+      let bestAt = anchors[0]
+      let bestOverlap = Infinity
+      for (const a of anchors) {
+        const box = boxAt(a.x, a.y, w)
+        let overlap = 0
+        for (const p of placed) overlap += overlapArea(box, p)
+        if (overlap < bestOverlap) {
+          bestOverlap = overlap
+          bestBox = box
+          bestAt = a
+        }
+        if (overlap === 0) break // a clear side, taken in preference order
+      }
+      placed.push(bestBox)
+
+      const show = s.focus || active
       v.el.style.display = 'block'
       v.el.style.color = show ? c.labelHi : c.label
-      v.el.style.transform = `translate(${Math.round(lx)}px, ${Math.round(ly)}px) translate(-50%, -50%)`
+      v.el.style.transform = `translate(${Math.round(bestAt.x)}px, ${Math.round(bestAt.y)}px) translate(-50%, -50%)`
     }
   }
 
@@ -709,13 +773,17 @@ export function GraphCanvas({
         const el = document.createElement('div')
         el.style.cssText = LABEL_CSS
         layer.appendChild(el)
-        v = { el, n }
+        v = { el, n, w: 0 }
         map.set(n.id, v)
       }
       v.n = n
       v.el.style.textShadow = c.labelShadow
       v.el.textContent = n.name
     }
+    // Measure each label's rendered width once (the font is fixed, so width changes
+    // only when the text does). One read pass after all text is set keeps this to a
+    // single layout reflow; syncLabels then boxes labels from the cache, never the DOM.
+    for (const v of map.values()) v.w = v.el.offsetWidth
     // Place immediately so a settled graph (e.g. after a theme toggle) shows labels
     // without waiting for the next pan/zoom to trigger a frame.
     syncLabels(fgRef.current?.zoom() ?? 1)
@@ -745,7 +813,10 @@ export function GraphCanvas({
       if (node.name !== f.name) {
         node.name = f.name
         const lab = labelsRef.current.get(node.id)
-        if (lab) lab.el.textContent = f.name // refresh the renamed label
+        if (lab) {
+          lab.el.textContent = f.name // refresh the renamed label
+          lab.w = lab.el.offsetWidth // re-measure so placement boxes it correctly
+        }
         dirty = true
       }
     }
@@ -895,8 +966,7 @@ export function GraphCanvas({
           // feel). On the first frame: mark the dragged node (lights its edges +
           // neighbours, dims the rest) AND clear every other node's pin so the whole
           // connected neighbourhood is free to move — including any node pinned by an
-          // earlier drag (Obsidian keeps nothing nailed down). Guarded to fire once;
-          // syncLabels also skips its de-overlap pass while dragging.
+          // earlier drag (Obsidian keeps nothing nailed down). Guarded to fire once.
           onNodeDrag={(n: FGNode) => {
             if (draggingRef.current) return
             draggingRef.current = true

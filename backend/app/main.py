@@ -12,6 +12,7 @@ from app.routers import (
     activity,
     annotations,
     ask,
+    chat,
     clusters,
     concepts,
     documents,
@@ -99,6 +100,7 @@ app.include_router(concepts.router)
 app.include_router(clusters.router)
 app.include_router(search.router)
 app.include_router(ask.router)
+app.include_router(chat.router)
 
 # OAuth discovery + Dynamic Client Registration for the MCP server. Served at the
 # origin root so the 401 `WWW-Authenticate: ... resource_metadata=` URL resolves.

@@ -14,6 +14,7 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -25,7 +26,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -215,6 +216,16 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)  # sha256, for idempotency
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIM), nullable=True)
+    # Generated full-text vector for hybrid lexical retrieval (Phase 3, search.py).
+    # DB-maintained (GENERATED ALWAYS ... STORED), so it is read-only here: Computed
+    # stops the ORM ever writing it; deferred keeps the tsvector blob off ordinary
+    # Chunk loads (only the lexical query reads it). The GIN index is in the migration.
+    content_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', content)", persisted=True),
+        nullable=True,
+        deferred=True,
+    )
 
     __table_args__ = (
         Index("ix_chunks_document", "document_id"),
@@ -266,6 +277,17 @@ class Concept(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIM), nullable=True)
     cluster_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("clusters.id", ondelete="SET NULL"), nullable=True
+    )
+    # Generated full-text vector over name + description (Phase 3 hybrid retrieval).
+    # Read-only / deferred for the same reasons as Chunk.content_tsv; GIN in migration.
+    text_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', name || ' ' || coalesce(description, ''))",
+            persisted=True,
+        ),
+        nullable=True,
+        deferred=True,
     )
 
     __table_args__ = (
@@ -436,4 +458,68 @@ class Annotation(Base):
         Index("ix_annotations_edge", "target_edge_id"),
         Index("ix_annotations_parent", "parent_id"),
         # Partial index for the open-flag/open-note tray is created in the migration.
+    )
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    # A multi-turn chat between one user and the in-product research agent, over a
+    # workspace's library. Unlike the graph (shared by all members), a conversation
+    # is PRIVATE to the user who started it — scoped by (workspace_id, owner_id), so
+    # `owner_id` is part of every lookup, not just `workspace_id`.
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[str] = mapped_column(String, nullable=False)  # Cognito sub
+    # Derived from the first user message (the UI shows it in the conversation
+    # list). Nullable until the first turn names it.
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Bumped on each new message so the list can sort by recent activity.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_conversations_ws_owner_created",
+            "workspace_id",
+            "owner_id",
+            "created_at",
+        ),
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    # Same eager-defaults guard as Annotation: read server-evaluated `created_at`
+    # via RETURNING so touching it after commit doesn't trigger a sync lazy-load on
+    # the AsyncSession (→ MissingGreenlet → 500).
+    __mapper_args__ = {"eager_defaults": True}
+
+    # One turn in a Conversation. `role` is free-form string (user | assistant |
+    # tool) per the repo convention — widening it is a convention change, not a
+    # migration. The agent's multi-step tool trace is kept on the assistant turn
+    # for display/audit (what it searched, which concepts it opened); it is NOT the
+    # replayed context (history is rebuilt from user/assistant `content`).
+    id: Mapped[uuid.UUID] = _pk()
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)  # user | assistant | tool
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Assistant turn's tool trace: [{name, status, ...}] — for the activity UI.
+    tool_calls: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Concept ids the answer cited (parsed from [n] markers), for graph highlight.
+    cited_concept_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
     )

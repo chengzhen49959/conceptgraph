@@ -364,6 +364,134 @@ export async function askStream(
   if (buf.trim()) dispatch(buf)
 }
 
+// --- Conversational agent (in-product chat) --------------------------------
+
+/** A saved conversation between the user and the research agent. */
+export type ChatConversation = {
+  id: string
+  workspace_id: string
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** One step in the agent's tool trace, shown as an activity line. */
+export type ChatToolEvent = { name: string; status: 'started' | 'finished' }
+
+/** A persisted message. The assistant turn carries its tool trace + the concept
+ *  ids it cited (for re-highlighting the graph when the conversation is reopened). */
+export type ChatMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'tool'
+  content: string | null
+  tool_calls: ChatToolEvent[] | null
+  cited_concept_ids: string[] | null
+  created_at: string
+}
+
+export type ConversationDetail = {
+  conversation: ChatConversation
+  messages: ChatMessage[]
+}
+
+export function createConversation(workspaceId?: string) {
+  return apiClient<ChatConversation>('/api/chat/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  })
+}
+
+export function listConversations(workspaceId?: string) {
+  const q = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return apiClient<ChatConversation[]>(`/api/chat/conversations${q}`)
+}
+
+export function getConversation(id: string) {
+  return apiClient<ConversationDetail>(`/api/chat/conversations/${id}`)
+}
+
+/** Streaming callbacks for one agent turn. `onSources` repeats as the agent gathers
+ *  evidence; `onDone` carries the authoritative cited-concept highlight set. */
+export type ChatHandlers = {
+  onTool?: (ev: ChatToolEvent) => void
+  onSources?: (passages: AskPassage[]) => void
+  onDelta?: (text: string) => void
+  onDone?: (citedConceptIds: string[], messageId: string | null) => void
+  onError?: (detail: string) => void
+}
+
+/** Send a message and stream the agent's multi-step answer. Posts to the same-origin
+ *  `/api/chat` Route Handler (attaches the bearer server-side and relays the backend
+ *  SSE), then fans each frame out to the handlers. Mirrors {@link askStream}; the
+ *  conversation must already exist (see {@link createConversation}). */
+export async function chatStream(
+  conversationId: string,
+  content: string,
+  handlers: ChatHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId, content }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    const raw = await res.text()
+    let message = raw
+    try {
+      const detail = JSON.parse(raw)?.detail
+      if (typeof detail === 'string') message = detail
+    } catch {
+      // not JSON — keep the raw text
+    }
+    throw new Error(message || `chat ${res.status}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  const dispatch = (frame: string) => {
+    let event = 'message'
+    const data: string[] = []
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+    }
+    if (!data.length) return
+    let payload: unknown
+    try {
+      payload = JSON.parse(data.join('\n'))
+    } catch {
+      return
+    }
+    const p = payload as Record<string, unknown>
+    if (event === 'tool') handlers.onTool?.(payload as ChatToolEvent)
+    else if (event === 'sources')
+      handlers.onSources?.((p.passages as AskPassage[]) ?? [])
+    else if (event === 'delta') handlers.onDelta?.(String(p.text ?? ''))
+    else if (event === 'done')
+      handlers.onDone?.(
+        (p.cited_concept_ids as string[]) ?? [],
+        (p.message_id as string | null) ?? null,
+      )
+    else if (event === 'error') handlers.onError?.(String(p.detail ?? 'error'))
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      if (frame.trim()) dispatch(frame)
+    }
+  }
+  if (buf.trim()) dispatch(buf)
+}
+
 // --- Deletes ---------------------------------------------------------------
 
 /** Counts returned by a batch delete (fields present depend on the endpoint). */
