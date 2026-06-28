@@ -107,6 +107,62 @@ function metaContent(keys: string[]): string | undefined {
   return undefined
 }
 
+// Every non-empty content for a repeated <meta name="…"> (e.g. one citation_author
+// tag per author). Order is DOM order, which arXiv emits as the author order.
+function allMetaContents(name: string): string[] {
+  return Array.from(document.querySelectorAll(`meta[name="${name}"]`))
+    .map((el) => el.getAttribute('content')?.trim())
+    .filter((v): v is string => !!v)
+}
+
+// --- arXiv /abs/ pages → the paper's own #abs block, not Readability's pick -----------
+// An arXiv abstract page is not an article in Readability's sense: the abstract is a
+// short <blockquote> dwarfed by reference lists and a JS-injected "Code, Data, Media"
+// widget (Hugging Face model cards). At clip time Readability scores that widget as the
+// main content and clips model listings instead of the paper. But arXiv wraps the whole
+// paper block — dateline, title, authors, abstract, comments, subjects, submission
+// history — in a single #abs element that is a *sibling* of the injected widget, so we
+// convert that subtree directly: the whole main column, with none of the cards. Returns
+// null when #abs is absent (non-abs page / markup change) so the caller falls back to
+// Readability.
+function extractArxiv(sourceUrl: string, metadata: ClipMetadata): ExtractResult | null {
+  if (!/(^|\.)arxiv\.org$/.test(location.hostname)) return null
+  if (!location.pathname.startsWith('/abs/')) return null
+  const main = document.querySelector('#abs')
+  if (!main) return null
+
+  const clone = main.cloneNode(true) as HTMLElement
+  // Drop arXiv's interactive chrome — download/PDF buttons and the endorser tooltip —
+  // which render as visible UI ("View PDF", "HTML (experimental)") but carry no text.
+  clone
+    .querySelectorAll('#download-button-info, .button-and-tooltip, [role="tooltip"], button')
+    .forEach((el) => el.remove())
+  const mathMap = inlineMath(clone)
+  const text = restoreMath(htmlToMarkdown(clone.innerHTML), mathMap)
+  if (!text) return null
+
+  // Prefer the citation_* meta for the clean title/byline (no "Title:" descriptor,
+  // authors as "First Last"); fall back to the heading text. citation_author is
+  // "Last, First" — flip only on a clean single comma (leave "Smith, John, Jr." as-is).
+  const title =
+    metaContent(['citation_title']) ??
+    main.querySelector('.title')?.textContent?.replace(/^\s*Title:\s*/, '').trim() ??
+    document.title
+  const byline = allMetaContents('citation_author')
+    .map((a) => {
+      const parts = a.split(', ')
+      return parts.length === 2 ? `${parts[1]} ${parts[0]}` : a
+    })
+    .join(', ')
+  return {
+    ok: true,
+    title: title.trim(),
+    text,
+    sourceUrl,
+    metadata: { ...metadata, author: byline || metadata.author },
+  }
+}
+
 // The first Article-like JSON-LD node on the page (schema.org), if any.
 function articleJsonLd(): Record<string, any> | undefined {
   const TYPES = [
@@ -180,6 +236,10 @@ function extract(scope: ExtractScope): ExtractResult {
       reason: text ? undefined : 'No text is selected on the page.',
     }
   }
+
+  // Sites whose main content Readability mis-scores get a direct path first.
+  const arxiv = extractArxiv(sourceUrl, metadata)
+  if (arxiv) return arxiv
 
   // Readability mutates the document it parses, so hand it a clone. Inline the page's
   // math into placeholder tokens BEFORE Readability runs (it strips <math> nodes), then

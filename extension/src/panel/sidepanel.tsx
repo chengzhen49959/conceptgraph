@@ -41,7 +41,11 @@ function App() {
 
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [wsId, setWsId] = useState<string | undefined>() // undefined → personal workspace
+  const [wsLoading, setWsLoading] = useState(true)
+  // Selected destination — always a real workspace id once the list loads. The
+  // personal workspace is one of the listed rows (type === 'private'), not a
+  // separate "undefined" case, so there's no longer a duplicate "Personal" entry.
+  const [wsId, setWsId] = useState<string | undefined>()
   const [wsFilter, setWsFilter] = useState('')
   const [newWsName, setNewWsName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -54,6 +58,10 @@ function App() {
 
   useEffect(() => {
     void (async () => {
+      // Load the workspace list in parallel with extraction — they're independent,
+      // and serializing them (load *after* extract) was why the destination list
+      // popped in late, a visible "jump" once the preview had already rendered.
+      const auth = loadAuth()
       const id = await activeTabId()
       setTabId(id)
       const { invokeScope } = await chrome.storage.session.get('invokeScope')
@@ -61,25 +69,75 @@ function App() {
       setScope(initial)
       await chrome.storage.session.remove('invokeScope')
       if (id != null) await doExtract(id, initial)
-      await loadAuth()
+      await auth
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // The side panel is one persistent page — it does NOT re-mount when the user
+  // switches tabs or re-opens the panel on a different tab. Without this it kept
+  // showing (and re-clipping) the page it was first opened on; every arxiv tab
+  // shares the host "arxiv.org", so the stale source line gave no hint and the
+  // re-clip silently de-duped server-side instead of saving the new paper. Re-read
+  // whatever tab is active now whenever the active tab changes or navigates, so
+  // Clip always submits the page in front of the user.
+  useEffect(() => {
+    if (!chrome.tabs?.onActivated) return
+    let myWindowId: number | undefined
+    void chrome.windows.getCurrent().then((w) => {
+      myWindowId = w.id
+    })
+    async function reExtractActive() {
+      const id = await activeTabId()
+      if (id == null) return
+      setTabId(id)
+      void doExtract(id, scope)
+    }
+    const onActivated = (info: chrome.tabs.TabActiveInfo) => {
+      if (myWindowId != null && info.windowId !== myWindowId) return
+      void reExtractActive()
+    }
+    const onUpdated = (
+      _tabId: number,
+      change: chrome.tabs.TabChangeInfo,
+      tab: chrome.tabs.Tab,
+    ) => {
+      // Only a real navigation of the foreground tab in this window — not every
+      // loading tick, and not a background window's churn.
+      if (!change.url || !tab.active) return
+      if (myWindowId != null && tab.windowId !== myWindowId) return
+      void reExtractActive()
+    }
+    chrome.tabs.onActivated.addListener(onActivated)
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    return () => {
+      chrome.tabs.onActivated.removeListener(onActivated)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+    }
+    // doExtract reads only stable setters; scope is the one value to keep fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope])
+
   async function loadAuth() {
+    setWsLoading(true)
     try {
       await getIdToken()
       setAuthed(true)
       const ws = await listWorkspaces()
       setWorkspaces(ws)
+      // Pre-select the last-used workspace if it still exists, else the personal
+      // one (the sole type === 'private' row — everything created is 'shared').
+      const personal = ws.find((w) => w.type === 'private') ?? ws[0]
       const { [LAST_WS_KEY]: last } = await chrome.storage.local.get(LAST_WS_KEY)
-      if (last && ws.some((w) => w.id === last)) setWsId(last)
+      setWsId(last && ws.some((w) => w.id === last) ? last : personal?.id)
     } catch (e) {
       if (e instanceof NotLoggedInError) setAuthed(false)
       else {
         setAuthed(true)
         setError((e as Error).message)
       }
+    } finally {
+      setWsLoading(false)
     }
   }
 
@@ -189,7 +247,15 @@ function App() {
         <a className="primary link" href={url} target="_blank" rel="noreferrer">
           View in graph
         </a>
-        <button className="ghost" onClick={() => setResult(null)}>
+        <button
+          className="ghost"
+          onClick={() => {
+            // Re-read the now-active tab, not the one we just clipped — the user has
+            // usually switched tabs by the time they reach for the next clip.
+            setResult(null)
+            void onReExtract()
+          }}
+        >
           Clip another
         </button>
       </div>
@@ -253,28 +319,48 @@ function App() {
 
       <div className="field">
         <span>Destination</span>
-        <input
-          className="search"
-          value={wsFilter}
-          onChange={(e) => setWsFilter(e.target.value)}
-          placeholder="Search workspaces…"
-        />
-        <div className="ws-list">
-          <button
-            className={wsId === undefined ? 'ws on' : 'ws'}
-            onClick={() => setWsId(undefined)}
-          >
-            Personal workspace
-          </button>
-          {filtered.map((w) => (
-            <button
-              key={w.id}
-              className={wsId === w.id ? 'ws on' : 'ws'}
-              onClick={() => setWsId(w.id)}
-            >
-              {w.name}
-            </button>
-          ))}
+        {/* Search only earns its space once the list is long; for a handful of
+            workspaces it's noise that pushes the options out of view. */}
+        {workspaces.length > 6 && (
+          <input
+            className="search"
+            value={wsFilter}
+            onChange={(e) => setWsFilter(e.target.value)}
+            placeholder="Search workspaces…"
+          />
+        )}
+        <div className="ws-list" role="radiogroup" aria-label="Choose a workspace">
+          {wsLoading && workspaces.length === 0 ? (
+            // Reserve the list's space while it loads so the panel doesn't reflow
+            // when the workspaces arrive — the old "jump" the user saw.
+            <>
+              <div className="ws-skel" />
+              <div className="ws-skel" />
+              <div className="ws-skel" />
+            </>
+          ) : filtered.length === 0 ? (
+            <div className="ws-empty">
+              {wsFilter ? `No workspaces match “${wsFilter}”.` : 'No workspaces yet.'}
+            </div>
+          ) : (
+            filtered.map((w) => {
+              const selected = wsId === w.id
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  className={selected ? 'ws on' : 'ws'}
+                  onClick={() => setWsId(w.id)}
+                >
+                  <span className="ws-dot" aria-hidden="true" />
+                  <span className="ws-name">{w.name}</span>
+                  {w.type === 'private' && <span className="ws-tag">Default</span>}
+                </button>
+              )
+            })
+          )}
         </div>
         <div className="newws">
           <input

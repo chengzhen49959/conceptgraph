@@ -35,14 +35,15 @@ const STYLE = `
 .fab {
   width: 100%; height: 100%; border: 0; border-radius: 50%; padding: 0; cursor: pointer;
   display: flex; align-items: center; justify-content: center; touch-action: none;
-  background: #4f46e5; color: #fff; -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 4px 14px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.08);
-  transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+  background: transparent; color: #fff; -webkit-tap-highlight-color: transparent;
+  transition: transform .15s ease;
 }
-.fab:hover { background: #4338ca; transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.12); }
-.fab:active { transform: scale(.96); }
-.glyph { width: 36px; height: 36px; background: ${ICON_URL} center / contain no-repeat; }
+.fab:hover { transform: translateY(-1px) scale(1.04); }
+.fab:active { transform: scale(.94); }
+/* No coloured plate — just the orb. It fills the whole (still 46px) click target and
+   carries its own drop-shadow so it stays legible on light or dark pages. */
+.glyph { width: 100%; height: 100%; background: ${ICON_URL} center / contain no-repeat;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
 .close {
   position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0;
   border: 0; border-radius: 50%; cursor: pointer; background: #111827; color: #fff;
