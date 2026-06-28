@@ -85,14 +85,9 @@ const endpointId = (e: string | FGNode) => (typeof e === 'object' ? e.id : e)
 // Approximate label height in CSS px (font ~11px, line-height:1).
 const LABEL_H = 14
 // Off-screen slack (CSS px) for the label viewport cull: a label whose dot sits
-// this far outside the canvas can never be read, so it's dropped before the
-// de-overlap pass. Generous enough (≈ a wide label's half-width) that nothing pops
-// at the edges as you pan.
+// this far outside the canvas can never be read, so it's dropped. Generous enough
+// (≈ a wide label's half-width) that nothing pops at the edges as you pan.
 const VP_MARGIN = 140
-// Spatial-hash cell size (CSS px) for label de-overlap. Each placed label box is
-// stored in every grid cell it spans; a new box only tests against boxes in the
-// cells it spans → O(n) amortised instead of O(n²) against every placed box.
-const GRID_CELL = 64
 
 // Padding (px) for whole-graph "overview" fits — the initial load view and every
 // zoom-back-out (deselect, unfocus, Fit button). Higher = the graph sits further
@@ -100,14 +95,8 @@ const GRID_CELL = 64
 // node-neighbourhood and cluster fits use their own tighter pads.
 const OVERVIEW_PAD = 120
 
-// A label's screen-space rectangle (CSS px) used only for de-overlap. `m` is the
-// breathing room so labels never kiss.
-type Box = { x0: number; y0: number; x1: number; y1: number }
-const overlaps = (a: Box, b: Box, m = 3) =>
-  a.x0 - m < b.x1 && a.x1 + m > b.x0 && a.y0 - m < b.y1 && a.y1 + m > b.y0
-
-// One HTML label element plus the cached node + measured width it tracks.
-type Label = { el: HTMLDivElement; w: number; n: FGNode }
+// One HTML label element plus the cached node it tracks.
+type Label = { el: HTMLDivElement; n: FGNode }
 
 // Node right-click menu state: anchored at viewport coords, acting on one node.
 type Menu = { x: number; y: number; node: FGNode }
@@ -625,34 +614,33 @@ export function GraphCanvas({
   // Apply the Forces panel to the simulation and re-heat. Repel = charge strength,
   // Link distance/force = the link force, Center = a gentle pull toward the origin
   // (replaces the default centering force so the slider actually controls it).
-  // collide just keeps node dots from overlapping (radius ≈ the dot, like
-  // Obsidian). Label de-overlap is handled at render time in syncLabels, NOT by
-  // the physics — a label-width collide radius made the layout stiff and buzz on a
-  // drag reheat. Re-runs on a forces change, a node size change, or a topology change.
+  // collide keeps node dots from overlapping (radius ≈ the dot + slack, like
+  // Obsidian). The charge/distance ranges run wide on purpose: every node now keeps
+  // its label, so the layout needs more air between dots for the names to land
+  // without piling up. Re-runs on a forces change, a node size change, or a topology change.
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
     const f = settings.forces
-    fg.d3Force('charge')?.strength?.(-(30 + f.repel * 1200))
-    fg.d3Force('link')?.distance?.(20 + f.linkDistance * 230)
+    fg.d3Force('charge')?.strength?.(-(50 + f.repel * 1900))
+    fg.d3Force('link')?.distance?.(28 + f.linkDistance * 320)
     fg.d3Force('link')?.strength?.(0.1 + f.linkForce * 0.9)
     fg.d3Force('center', null) // drop the library's default centering
     fg.d3Force('x', forceX(0).strength(f.center * 0.5))
     fg.d3Force('y', forceY(0).strength(f.center * 0.5))
-    fg.d3Force('collide', forceCollide<FGNode>((n) => radiusOf(n) + 6).strength(1))
+    fg.d3Force('collide', forceCollide<FGNode>((n) => radiusOf(n) + 10).strength(1))
     fg.d3ReheatSimulation()
   }, [Comp, settings.forces, radiusOf])
 
   // Position + show/hide every HTML label for the current frame. Called on each
   // canvas frame (onRenderFramePost) and once after (re)building the elements.
-  // `k` is the current zoom. Label fade threshold comes from the Display slider.
+  // `k` is the current zoom. Every visible on-screen node keeps its label — labels
+  // are never thinned by zoom or by touching one another (the Forces panel spreads
+  // the dots to make room). Only an explicit filter or an active highlight hides one.
   const syncLabels = (k: number) => {
     const fg = fgRef.current
     if (!fg) return
     const active = highlightIds != null
-    // Higher "text fade threshold" → labels appear only when more zoomed in.
-    const minLabelR = 0.5 + settings.display.textFade * 5
-    const dragging = draggingRef.current
 
     const all = [...labelsRef.current.values()].filter(
       (v) => v.n.x != null && v.n.y != null,
@@ -661,42 +649,24 @@ export function GraphCanvas({
     for (const v of all)
       posRef.current.set(v.n.id, { x: v.n.x as number, y: v.n.y as number })
 
-    // Cull to the labels that will actually show, THEN de-overlap only those — this
-    // bounds the placement pass to on-screen visible labels (a handful when zoomed in,
-    // and never more than fill the canvas), which is what keeps a big graph smooth
-    // while the sim runs hot. The viewport cull below is the load-bearing bound: at a
-    // low text-fade threshold the speck cull barely fires, so without it nearly every
-    // node would reach the de-overlap pass.
-    type Cand = {
-      v: Label
-      sp: { x: number; y: number }
-      screenR: number
-      show: boolean
-      focus: boolean
-    }
-    const shown: Cand[] = []
     for (const v of all) {
       const n = v.n
+      // Hidden by an explicit filter (orphan / hidden topic / local-graph scope).
       if (!nodeVisible(n)) {
         v.el.style.display = 'none'
         continue
       }
-      const focus = n.id === selectedId || n.id === hoverId
-      // When something is active, only its highlight set is labelled.
+      // When something is active (hover / select / sidebar focus), only its highlight
+      // set is labelled and the rest dim away. A resting graph has no active set, so
+      // every visible node keeps its label.
       if (active && !highlightIds.has(n.id)) {
         v.el.style.display = 'none'
         continue
       }
+      const focus = n.id === selectedId || n.id === hoverId
       const show = focus || active
-      const screenR = radiusOf(n) * k
-      // Obsidian's text fade: drop a resting label when its dot is a speck.
-      if (!show && screenR < minLabelR) {
-        v.el.style.display = 'none'
-        continue
-      }
-      // Viewport cull: a label whose dot sits well outside the canvas can never be
-      // read. Dropping it here bounds the de-overlap pass to the on-screen set — the
-      // real "only visible labels" guarantee the placement loop assumes.
+      // Viewport cull: a label whose dot sits well off-canvas can't be read. Purely a
+      // perf/clarity bound — it never thins the on-screen set.
       const sp = fg.graph2ScreenCoords(n.x as number, n.y as number)
       if (
         sp.x < -VP_MARGIN ||
@@ -707,78 +677,12 @@ export function GraphCanvas({
         v.el.style.display = 'none'
         continue
       }
-      shown.push({ v, sp, screenR, show, focus })
-    }
-
-    // Focused first, then biggest — important labels claim space first.
-    shown.sort((a, b) => {
-      if (a.focus !== b.focus) return a.focus ? -1 : 1
-      return b.screenR - a.screenR
-    })
-
-    // Obsidian's label model: every name sits centred *directly below* its dot —
-    // never scattered to the side or above (that reads as messy). Clutter is resolved
-    // by hiding, not by moving: a lower-priority label that would touch one already
-    // placed is simply dropped (the hard "two names never overlap" rule). Sorted
-    // focused-first then biggest-first, so the important names win their slot and the
-    // crowded small ones fall away — exactly how Obsidian thins labels as you zoom.
-    // Spatial hash of placed boxes: a box is filed under every GRID_CELL it spans
-    // (expanded by the overlap margin so near-touching boxes in adjacent cells still
-    // share one), so a collision test only compares against boxes in the cells the
-    // new box spans — O(n) amortised instead of scanning every placed box. Two boxes
-    // that overlap necessarily share a spanned cell, so the "two names never overlap"
-    // rule still holds exactly, regardless of label width.
-    const grid = new Map<string, Box[]>()
-    const cellsOf = (b: Box): string[] => {
-      const gx0 = Math.floor((b.x0 - 3) / GRID_CELL)
-      const gx1 = Math.floor((b.x1 + 3) / GRID_CELL)
-      const gy0 = Math.floor((b.y0 - 3) / GRID_CELL)
-      const gy1 = Math.floor((b.y1 + 3) / GRID_CELL)
-      const keys: string[] = []
-      for (let gx = gx0; gx <= gx1; gx++)
-        for (let gy = gy0; gy <= gy1; gy++) keys.push(`${gx},${gy}`)
-      return keys
-    }
-    const collides = (b: Box): boolean => {
-      for (const key of cellsOf(b)) {
-        const bucket = grid.get(key)
-        if (bucket) for (const p of bucket) if (overlaps(p, b)) return true
-      }
-      return false
-    }
-    const place = (b: Box) => {
-      for (const key of cellsOf(b)) {
-        const bucket = grid.get(key)
-        if (bucket) bucket.push(b)
-        else grid.set(key, [b])
-      }
-    }
-    for (const { v, sp, screenR, show, focus } of shown) {
-      // Insurance: a zero-width box never registers an overlap, so a mismeasured
-      // label would render on top of its neighbour. Re-measure once if it slipped
-      // through as 0 (forcing it visible first — offsetWidth is 0 when hidden).
-      if (v.w === 0) {
-        v.el.style.display = 'block'
-        v.w = v.el.offsetWidth
-      }
-      const hw = v.w / 2
-      const hh = LABEL_H / 2
-      // Centred just under the dot.
+      // Centred directly below the dot (Obsidian's placement). No de-overlap pass:
+      // overlapping names render as-is rather than being dropped — showing them all
+      // is the rule; node spread is what keeps them legible.
+      const screenR = radiusOf(n) * k
       const lx = sp.x
-      const ly = sp.y + screenR + 4 + hh
-      const box: Box = { x0: lx - hw, y0: ly - hh, x1: lx + hw, y1: ly + hh }
-
-      // Focused (selected/hovered) labels are never dropped — they claim their slot
-      // first (but are still filed into the grid so resting labels avoid them). While
-      // dragging the sim is hot, so skip the collision test and let every label sit
-      // below its dot until the drag settles. Otherwise a resting label that would
-      // touch one already placed is hidden rather than overlapped.
-      if (!focus && !dragging && collides(box)) {
-        v.el.style.display = 'none'
-        continue
-      }
-      place(box)
-
+      const ly = sp.y + screenR + 4 + LABEL_H / 2
       v.el.style.display = 'block'
       v.el.style.color = show ? c.labelHi : c.label
       v.el.style.transform = `translate(${Math.round(lx)}px, ${Math.round(ly)}px) translate(-50%, -50%)`
@@ -805,18 +709,12 @@ export function GraphCanvas({
         const el = document.createElement('div')
         el.style.cssText = LABEL_CSS
         layer.appendChild(el)
-        v = { el, w: 0, n }
+        v = { el, n }
         map.set(n.id, v)
       }
       v.n = n
       v.el.style.textShadow = c.labelShadow
       v.el.textContent = n.name
-      // offsetWidth is 0 for a display:none element. A label hidden by an earlier
-      // de-overlap pass would re-measure as 0 here (this effect re-runs on a theme
-      // toggle), giving it a zero-width box that never registers an overlap — so it
-      // reappears on top of its neighbour. Force it visible before measuring.
-      if (v.el.style.display === 'none') v.el.style.display = 'block'
-      v.w = v.el.offsetWidth // measure (one reflow); cached for de-overlap
     }
     // Place immediately so a settled graph (e.g. after a theme toggle) shows labels
     // without waiting for the next pan/zoom to trigger a frame.
@@ -847,18 +745,14 @@ export function GraphCanvas({
       if (node.name !== f.name) {
         node.name = f.name
         const lab = labelsRef.current.get(node.id)
-        if (lab) {
-          lab.el.textContent = f.name
-          if (lab.el.style.display === 'none') lab.el.style.display = 'block'
-          lab.w = lab.el.offsetWidth // re-measure for de-overlap (force visible: see build effect)
-        }
+        if (lab) lab.el.textContent = f.name // refresh the renamed label
         dirty = true
       }
     }
     if (!dirty) return
     const fg = fgRef.current
     if (!fg) return
-    syncLabels(fg.zoom()) // a renamed label changed width — reposition
+    syncLabels(fg.zoom()) // repaint labels after a rename
     fg.zoom(fg.zoom()) // flag needsRedraw so the recolour paints; does not re-heat
     // graphData is intentionally not a dep: it only changes when topoSig does, which
     // already rebuilds nodes with fresh attributes. Keying on `data` is the point.

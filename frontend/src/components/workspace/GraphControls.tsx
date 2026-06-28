@@ -34,11 +34,6 @@ export function GraphControls({
           onChange={(v) => onChange({ filters: { orphans: v } })}
         />
         <SliderRow
-          label="Text fade threshold"
-          value={settings.display.textFade}
-          onChange={(v) => onChange({ display: { textFade: v } })}
-        />
-        <SliderRow
           label="Node size"
           value={settings.display.nodeSize}
           onChange={(v) => onChange({ display: { nodeSize: v } })}

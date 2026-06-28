@@ -22,7 +22,6 @@ export type GraphSettings = {
   topicColors: Record<string, string>
   display: {
     arrows: boolean
-    textFade: number // label fade-in threshold (higher = labels appear later)
     nodeSize: number // global radius multiplier (0.5 ≈ 1×)
     linkThickness: number // global link-width multiplier
   }
@@ -53,8 +52,8 @@ export type GraphSettingsPatch = {
 export const DEFAULT_SETTINGS: GraphSettings = {
   filters: { hiddenTopics: [], orphans: true },
   topicColors: {},
-  display: { arrows: false, textFade: 0.5, nodeSize: 0.5, linkThickness: 0.3 },
-  forces: { center: 0.3, repel: 0.4, linkForce: 0.5, linkDistance: 0.4 },
+  display: { arrows: false, nodeSize: 0.5, linkThickness: 0.3 },
+  forces: { center: 0.3, repel: 0.5, linkForce: 0.5, linkDistance: 0.5 },
   local: { enabled: false, depth: 1 },
 }
 
