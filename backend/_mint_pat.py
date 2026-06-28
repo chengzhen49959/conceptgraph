@@ -48,6 +48,10 @@ def _resolve_sub_by_email(email: str) -> str:
 
 
 def _client_config(mcp_url: str, token: str) -> str:
+    # Pass the bearer via mcp-remote's ${ENV} substitution rather than inlining
+    # "Authorization: Bearer <t>": mcp-remote splits --header on the first colon
+    # and keeps the leading space, yielding " Bearer <t>", which breaks the auth
+    # scheme (-> 401). The env form sidesteps that parsing quirk.
     return json.dumps(
         {
             "mcpServers": {
@@ -58,8 +62,9 @@ def _client_config(mcp_url: str, token: str) -> str:
                         "mcp-remote",
                         mcp_url,
                         "--header",
-                        f"Authorization: Bearer {token}",
+                        "Authorization:${AUTH_HEADER}",
                     ],
+                    "env": {"AUTH_HEADER": f"Bearer {token}"},
                 }
             }
         },
