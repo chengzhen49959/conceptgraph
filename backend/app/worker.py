@@ -546,41 +546,76 @@ _MAX_RESUME_ATTEMPTS = 5
 _RESUME_ATTEMPT_TTL = 2 * 3600
 
 
+async def _clear_stale_locks(redis) -> None:
+    """Delete every leaked ingest/merge lock left by a dead predecessor.
+
+    A worker SIGKILLed mid-job never runs its `finally` lock-release, so its
+    per-document ingest locks (`ingest-lock:*`) and per-workspace merge locks
+    (`merge-lock:*`) linger in Redis for up to _JOB_TIMEOUT (30 min). This is a
+    SINGLE-worker deployment and on_startup runs before the job poller, so nothing is
+    legitimately mid-flight — every such key is a corpse. Force-delete (not
+    `lock.release`, which checks ownership the new worker doesn't have). Without this,
+    a resumed job acquire-fails on the ghost lock and SKIPS, stranding the doc at
+    'pending' — the dead-end the lock docstrings name on_startup as the backstop for.
+    """
+    cleared = 0
+    for pattern in ("ingest-lock:*", "merge-lock:*"):
+        async for key in redis.scan_iter(match=pattern):
+            await redis.delete(key)
+            cleared += 1
+    if cleared:
+        logger.warning("cleared %d stale ingest/merge lock(s) on startup", cleared)
+
+
 async def on_startup(ctx: dict) -> None:
     """Resume documents stranded mid-pipeline by a previous worker's death.
 
     A worker restart — a deploy (the common one: the host ships a new container),
-    an OOM, host sleep, or any SIGKILL — stops a job without its `except` running,
-    freezing the doc mid-pipeline (e.g. 'merging') with no process driving it. The
-    old behaviour buried that corpse: mark it failed, make the user delete and
-    re-upload. But the job is recoverable. The pipeline is idempotent per
-    document_id — it clears any prior attempt's chunks on entry (their mentions
-    cascade) and the orphan sweep reaps half-merged concepts — and the source bytes
-    live durably in S3 (ingest never deletes them; that's also the download source).
-    So the honest recovery is to RE-RUN, not to fail: each stranded doc returns to
-    'pending' and is re-enqueued, and the fresh worker re-ingests it from scratch.
-    No manual step, and it covers every restart cause, not just deploys.
+    an OOM, host sleep, or any SIGKILL — stops a job without its `except`/`finally`
+    running, freezing the doc mid-pipeline with no process driving it AND leaking the
+    job's Redis locks. The old behaviour buried the doc: mark it failed, make the user
+    delete and re-upload. But the job is recoverable — the pipeline is idempotent per
+    document_id (clears any prior attempt's chunks on entry, mentions cascade; the
+    orphan sweep reaps half-merged concepts) and the source bytes live durably in S3
+    (ingest never deletes them; that's also the download source) — so the honest
+    recovery is to RE-RUN, not to fail.
+
+    Two things must happen together, in order, or the resume silently no-ops:
+
+    1. CLEAR the leaked locks (`_clear_stale_locks`) — else each re-enqueued job
+       acquire-fails on the dead holder's lock and skips, stranding the doc at
+       'pending'. This is the bug that made the first cut of this hook look like it
+       did nothing: the doc resumed to 'pending' but never moved.
+    2. RE-ENQUEUE every non-terminal doc, INCLUDING 'pending' — on a fresh worker a
+       'pending' doc is either a lost orphan (its `/ingest` enqueue never landed, e.g.
+       a dropped call after the S3 PUT) or already queued; re-enqueuing both is safe
+       (the per-doc lock makes a redundant job a no-op, the pipeline is idempotent) and
+       guarantees every non-terminal doc has a live job. The fresh worker re-ingests
+       from scratch. No manual step, covers every restart cause.
 
     A bounded per-document counter (Redis) is the one guard: a file that reliably
     crashes the worker would otherwise loop forever, so past _MAX_RESUME_ATTEMPTS it
-    becomes an honest failure. 'pending' (a job still queued in Redis this worker is
-    about to run) and terminal states are left untouched — except 'failed' docs still
-    bearing the OLD burial marker "interrupted (worker restarted)", a one-time
-    retroactive rescue: those are restart casualties this very change reclassifies as
-    resumable (the new code never writes that string, so it can't re-accumulate).
-    'duplicate' must stay excluded or every prior duplicate would re-fail here.
+    becomes an honest failure. Terminal 'done'/'duplicate' are untouched ('duplicate'
+    MUST stay excluded or every prior duplicate would re-fail here), as is 'failed' —
+    except docs still bearing the OLD burial marker "interrupted (worker restarted)", a
+    one-time retroactive rescue of restart casualties this change reclassifies as
+    resumable (the new code never writes that string).
     """
     redis = ctx["redis"]
     sessionmaker = _sessionmaker()
+
+    # (1) Ghost locks first — suppressed so a Redis hiccup here can't abort the resume.
+    with contextlib.suppress(Exception):
+        await _clear_stale_locks(redis)
+
+    # (2) Re-enqueue every non-terminal doc (incl. 'pending') + retroactively any still
+    # under the old burial marker.
     async with sessionmaker() as session:
         stranded = (
             await session.execute(
                 select(Document.id).where(
                     or_(
-                        # In-flight when the worker died (parsing…clustering).
-                        Document.status.notin_(["pending", "done", "failed", "duplicate"]),
-                        # Retroactive: docs the old on_startup buried under this exact
-                        # marker were restart casualties, not real failures.
+                        Document.status.notin_(["done", "failed", "duplicate"]),
                         and_(
                             Document.status == "failed",
                             Document.error == "interrupted (worker restarted)",
