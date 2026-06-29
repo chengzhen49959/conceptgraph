@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, Network, Search, Users } from 'lucide-react'
+import { Bell, Search, Users } from 'lucide-react'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
+import { ProjectIcon } from '@/lib/projectIcons'
 import { MembersPanel } from './MembersPanel'
 import { ActivityFeed } from './ActivityFeed'
 import { SignInButton } from '@/components/public/SignInButton'
@@ -40,9 +41,7 @@ export function AppTopbar({
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-4">
       <div className="flex items-center gap-2.5">
         <SidebarTrigger className="-ml-1" />
-        <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-background">
-          <Network className="size-4" />
-        </div>
+        <ProjectIcon personal size={28} />
         <span className="text-sm font-semibold tracking-tight">Concept Graph</span>
       </div>
 

@@ -34,11 +34,14 @@ from app.auth import CurrentUser
 from app.config import get_settings
 from app.db import get_session
 from app.models import Document, Workspace
-from app.routers import concepts, documents, graph, graph_edit, search
+from app.routers import clusters, concepts, documents, graph, graph_edit, search
 from app.routers.ask import AskIn, ask
+from app.routers.clusters import DeleteClustersRequest, DeleteClustersResponse
 from app.routers.documents import (
     CreateDocumentRequest,
     CreateDocumentResponse,
+    DeleteDocumentsRequest,
+    DeleteDocumentsResponse,
     DocumentDownloadOut,
     DocumentOut,
     IngestResponse,
@@ -281,6 +284,26 @@ async def public_start_ingest(
     return await documents.start_ingest(
         document_id=document_id, request=request, user=pub.user, session=session
     )
+
+
+@router.post("/documents/delete", response_model=DeleteDocumentsResponse)
+async def public_delete_documents(
+    body: DeleteDocumentsRequest,
+    pub: PublicCtx = Depends(get_public_session),
+    session: AsyncSession = Depends(get_session),
+) -> DeleteDocumentsResponse:
+    body.workspace_id = None  # force the session's own workspace
+    return await documents.delete_documents(body=body, user=pub.user, session=session)
+
+
+@router.post("/clusters/delete", response_model=DeleteClustersResponse)
+async def public_delete_clusters(
+    body: DeleteClustersRequest,
+    pub: PublicCtx = Depends(get_public_session),
+    session: AsyncSession = Depends(get_session),
+) -> DeleteClustersResponse:
+    body.workspace_id = None  # force the session's own workspace
+    return await clusters.delete_clusters(body=body, user=pub.user, session=session)
 
 
 # --- graph editing (forward to the audited, merge-locked handlers) -----------
