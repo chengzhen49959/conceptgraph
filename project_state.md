@@ -6,6 +6,10 @@ Updated: 2026-06-30
 
 ## 1. Where We Are Now
 
+**Fixed — worker OOM crash-loop on concurrent large PDFs, 2026-06-30:**
+- Root cause of the recurring **"worker offline"**: `max_jobs=4` let four large papers hit PyMuPDF's layout parse (whole document held in memory) **simultaneously** on the 512MB Render worker → **OOM → SIGKILL** mid-parse. SIGKILL skips `except/finally`, so docs froze at `parsing` and the arq health key lapsed (→ "worker offline" banner + `GET /api/health/worker` `{online:false}`); `on_startup` resume then re-enqueued the same four straight back into the same OOM — the loop that survived the earlier liveness/banner/resume work (those handled the *aftermath*, not the cause). Confirmed by elimination on the live deploy: worker `Deployed` + not `Suspended` (no billing lapse) + still `{online:false}`, and the screenshot showed **exactly 4** docs frozen at "Parsing…" = `max_jobs`.
+- Fix (root cause, not patch #5): a module-level `_PARSE_SEMAPHORE = asyncio.Semaphore(parse_concurrency)` (new `Settings.parse_concurrency`, default **1**, env `PARSE_CONCURRENCY`) wraps **only** the `to_thread(parse_document)` call, bounding concurrent renders across all in-flight jobs to one. Peak parse memory = a single render; the cheaper chunk/embed/extract/merge stages of other docs still pipeline under `max_jobs=4`. Raise the cap via env on a larger worker plan. (`backend/app/config.py`, `backend/app/worker.py`.)
+
 **Done — public demo graph (F20: no-auth landing), 2026-06-30:**
 - A login-free demo at the frontend's `/` so anyone (chiefly a hackathon judge) experiences the whole product end to end — upload → extract → graph → search → ask → edit — **without an account**, on a **prefilled** graph that is their own isolated sandbox. Signed-in users hitting `/` still redirect to `/dashboard`.
 - **Per-visitor identity, no Cognito, no migration:** `POST /api/public/session` mints an opaque token (`secrets.token_urlsafe(32)`) and creates a `workspaces` row owned by the synthetic `anon:<token>` (reuses the one-private-workspace-per-owner unique index). The token is the credential — stored in `localStorage`, sent as the `X-Public-Session` header.

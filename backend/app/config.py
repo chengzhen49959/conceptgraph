@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     # the graph, so two differently-named near-duplicates in ONE document can both
     # create a node — the manual dedup_sweep is the repair pass for that.
     merge_concurrency: int = 8
+    # Concurrent PDF parses across ALL in-flight ingest jobs. PyMuPDF's layout engine
+    # holds the whole rendered document in memory, so N concurrent parses of large
+    # papers peak at N× that. On a 512MB worker, max_jobs (4) simultaneous parses OOM
+    # the process — the kernel SIGKILLs it mid-parse (no except/finally runs), which
+    # freezes every doc at 'parsing', lapses the Redis health key (→ "worker offline"),
+    # and on_startup re-enqueues the same files straight back into the same OOM. That
+    # loop is why the worker kept "going offline" despite the resume fix. Serialising
+    # parse (1) caps peak parse memory to a single render while the lighter
+    # chunk/embed/extract/merge stages of OTHER docs still overlap under max_jobs.
+    # Raise via env PARSE_CONCURRENCY when the worker runs on a larger plan.
+    parse_concurrency: int = 1
 
     # --- Conversational agent + retrieval tuning -------------------------------
     # The agent runs a bounded tool loop: each iteration is one LLM call that may

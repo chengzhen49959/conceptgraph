@@ -68,6 +68,16 @@ _NEAR_DUP_MAX_HAMMING = 3
 # empty workspace resolves every concept as new (the maximum merge-judge fan-out).
 _JOB_TIMEOUT = 1800
 
+# Cross-job cap on concurrent PDF parses. PyMuPDF's layout engine holds the whole
+# rendered document in memory, so without this max_jobs (4) large papers parse at
+# once and OOM the 512MB worker — a SIGKILL that freezes the docs at 'parsing' and
+# reads as "worker offline" (see Settings.parse_concurrency for the full chain).
+# Module-global so it bounds parses ACROSS all in-flight ingest jobs, not within
+# one; the single arq event loop means one Semaphore instance is shared by every
+# job. Acquired only around the parse to_thread, so the heavier-but-cheaper-on-memory
+# embed/merge stages of other docs keep overlapping under max_jobs.
+_PARSE_SEMAPHORE = asyncio.Semaphore(get_settings().parse_concurrency)
+
 
 async def _set_status(document_id: uuid.UUID, status: str, error: str | None = None) -> None:
     # A status transition always clears the merge-progress counters: they belong to
@@ -237,7 +247,11 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
             )
             await session.commit()
 
-        text = await asyncio.to_thread(parse_document, data, source_type)
+        # Serialise the memory-heavy parse across jobs so concurrent big PDFs can't
+        # OOM-kill the worker (see _PARSE_SEMAPHORE). The slot is held only for the
+        # render, not the rest of the pipeline.
+        async with _PARSE_SEMAPHORE:
+            text = await asyncio.to_thread(parse_document, data, source_type)
 
         # Near-duplicate (lexical) de-dup: content_hash above catches byte-identical
         # re-uploads; this catches the SAME paper from a different file (re-rendered PDF,
