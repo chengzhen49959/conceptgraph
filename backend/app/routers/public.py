@@ -34,7 +34,7 @@ from app.auth import CurrentUser
 from app.config import get_settings
 from app.db import get_session
 from app.models import Document, Workspace
-from app.routers import clusters, concepts, documents, graph, graph_edit, search
+from app.routers import clusters, concepts, documents, graph, graph_edit, health, search
 from app.routers.ask import AskIn, ask
 from app.routers.clusters import DeleteClustersRequest, DeleteClustersResponse
 from app.routers.documents import (
@@ -170,6 +170,18 @@ async def create_public_session(
 
 
 # --- read endpoints (forward to the authed handlers, session workspace) ------
+
+
+@router.get("/health/worker")
+async def public_worker_health(request: Request) -> dict[str, bool]:
+    """Ingestion-worker liveness for the demo's "processing paused" banner.
+
+    No session required: it's infra status (a single bool, no workspace data), and
+    gating it on a possibly-stale demo session would falsely report "offline" and
+    flash the banner. Only respects the demo on/off flag.
+    """
+    _require_enabled()
+    return await health.worker_health(request=request)
 
 
 @router.get("/graph", response_model=GraphOut)

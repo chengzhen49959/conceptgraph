@@ -574,14 +574,21 @@ export function WorkspaceView({
             className="flex shrink-0 items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
           >
             <AlertTriangle className="size-3.5 shrink-0" />
-            <span>
-              Ingestion worker offline — queued clips won’t process until it’s
-              back. Start it with{' '}
-              <code className="rounded bg-amber-200/60 px-1 py-0.5 font-mono dark:bg-amber-900/50">
-                ./dev.sh
-              </code>{' '}
-              in <code className="font-mono">backend/</code>.
-            </span>
+            {isPublic ? (
+              <span>
+                Processing is temporarily unavailable — your upload is queued and
+                will finish once it’s back online.
+              </span>
+            ) : (
+              <span>
+                Ingestion worker offline — queued clips won’t process until it’s
+                back. Start it with{' '}
+                <code className="rounded bg-amber-200/60 px-1 py-0.5 font-mono dark:bg-amber-900/50">
+                  ./dev.sh
+                </code>{' '}
+                in <code className="font-mono">backend/</code>.
+              </span>
+            )}
           </div>
         )}
 
