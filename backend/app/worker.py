@@ -39,6 +39,7 @@ from app.services.concepts import (
     upsert_edges,
 )
 from app.services.dedup_sweep import sweep_workspace
+from app.ai.cleanup import clean_markdown
 from app.services.parse import parse_document
 from app.services.simhash import compute as compute_simhash
 from app.services.simhash import hamming as simhash_hamming
@@ -68,14 +69,12 @@ _NEAR_DUP_MAX_HAMMING = 3
 # empty workspace resolves every concept as new (the maximum merge-judge fan-out).
 _JOB_TIMEOUT = 1800
 
-# Cross-job cap on concurrent PDF parses. PyMuPDF's layout engine holds the whole
-# rendered document in memory, so without this max_jobs (4) large papers parse at
-# once and OOM the 512MB worker — a SIGKILL that freezes the docs at 'parsing' and
-# reads as "worker offline" (see Settings.parse_concurrency for the full chain).
-# Module-global so it bounds parses ACROSS all in-flight ingest jobs, not within
-# one; the single arq event loop means one Semaphore instance is shared by every
-# job. Acquired only around the parse to_thread, so the heavier-but-cheaper-on-memory
-# embed/merge stages of other docs keep overlapping under max_jobs.
+# Cross-job cap on concurrent PDF text-layer extractions. Extraction now reads the text
+# layer (parse._pdf_to_text) instead of rendering pages, so memory is flat and the OOM
+# crash-loop this was added to stop is gone; it remains only as a gentle CPU bound. Module-
+# global so it bounds extraction ACROSS all in-flight ingest jobs, not within one; the single
+# arq event loop means one Semaphore instance is shared by every job. The LLM Markdown-cleanup
+# pass runs OUTSIDE it, bounded instead by ai.client.LLM_SEMAPHORE.
 _PARSE_SEMAPHORE = asyncio.Semaphore(get_settings().parse_concurrency)
 
 
@@ -247,11 +246,15 @@ async def ingest_document(ctx: dict, document_id: str) -> None:
             )
             await session.commit()
 
-        # Serialise the memory-heavy parse across jobs so concurrent big PDFs can't
-        # OOM-kill the worker (see _PARSE_SEMAPHORE). The slot is held only for the
-        # render, not the rest of the pipeline.
+        # Extract the PDF's text layer (memory-light; see parse_document). The semaphore is a
+        # gentle CPU bound now that extraction no longer renders pages.
         async with _PARSE_SEMAPHORE:
             text = await asyncio.to_thread(parse_document, data, source_type)
+        # Reformat the cheap raw extraction into structured Markdown with the LLM (PDFs only;
+        # md/text uploads already arrive clean). Best-effort: clean_markdown falls back to the
+        # raw text per chunk, so a model failure degrades quality but never blocks ingest.
+        if source_type == "pdf" and get_settings().parse_llm_cleanup:
+            text = await clean_markdown(text)
 
         # Near-duplicate (lexical) de-dup: content_hash above catches byte-identical
         # re-uploads; this catches the SAME paper from a different file (re-rendered PDF,

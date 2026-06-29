@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # Reliable tool-calling + faithful citation matter (nano drops tool calls and
     # garbles [n] citations), so mini, not nano.
     agent_model: str = "gpt-5.4-mini"
+    # PDF-to-Markdown cleanup (app.ai.cleanup): reformats the cheap text-layer extraction
+    # back into structured Markdown. Reformatting, not judgement — but it must reproduce text
+    # faithfully without summarising, which nano is too weak for, so mini.
+    parse_clean_model: str = "gpt-5.4-mini"
 
     # --- Pipeline tuning -------------------------------------------------------
     # NOTE: the embedding dimension is a DDL-fixed constant (the vector column
@@ -90,17 +94,18 @@ class Settings(BaseSettings):
     # the graph, so two differently-named near-duplicates in ONE document can both
     # create a node — the manual dedup_sweep is the repair pass for that.
     merge_concurrency: int = 8
-    # Concurrent PDF parses across ALL in-flight ingest jobs. PyMuPDF's layout engine
-    # holds the whole rendered document in memory, so N concurrent parses of large
-    # papers peak at N× that. On a 512MB worker, max_jobs (4) simultaneous parses OOM
-    # the process — the kernel SIGKILLs it mid-parse (no except/finally runs), which
-    # freezes every doc at 'parsing', lapses the Redis health key (→ "worker offline"),
-    # and on_startup re-enqueues the same files straight back into the same OOM. That
-    # loop is why the worker kept "going offline" despite the resume fix. Serialising
-    # parse (1) caps peak parse memory to a single render while the lighter
-    # chunk/embed/extract/merge stages of OTHER docs still overlap under max_jobs.
-    # Raise via env PARSE_CONCURRENCY when the worker runs on a larger plan.
+    # Concurrent PDF text-layer extractions across ALL in-flight ingest jobs. Extraction now
+    # reads the text layer (parse._pdf_to_text) instead of rendering pages, so its peak memory
+    # is flat and the OOM crash-loop that forced this to 1 is gone (history: the old
+    # PyMuPDF4LLM layout path held a whole rendered document in memory, so max_jobs (4)
+    # concurrent parses SIGKILL-froze the 512MB worker at 'parsing' and read as "worker
+    # offline"). Kept only as a gentle CPU bound; raise via env PARSE_CONCURRENCY freely now
+    # that memory is no longer the limit.
     parse_concurrency: int = 1
+    # Kill switch for the LLM Markdown-cleanup pass (app.ai.cleanup). On by default; set
+    # PARSE_LLM_CLEANUP=false to store the raw text-layer extraction directly — no per-doc
+    # model spend, plainer reading view — without a code change.
+    parse_llm_cleanup: bool = True
 
     # --- Conversational agent + retrieval tuning -------------------------------
     # The agent runs a bounded tool loop: each iteration is one LLM call that may
