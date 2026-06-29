@@ -7,7 +7,6 @@ import {
   EyeOff,
   ListChecks,
   LoaderCircle,
-  Network,
   Plus,
   Search,
   Settings,
@@ -43,6 +42,7 @@ import {
   SidebarSeparator,
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
+import { ProjectIcon } from '@/lib/projectIcons'
 import { clusterColorMap } from '@/lib/cluster-color'
 import {
   type GraphSettings,
@@ -490,9 +490,7 @@ export function NavSidebar({
       <SidebarHeader>
         {publicMode ? (
           <div className="flex items-center gap-2 px-2 py-1.5">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-              <Network className="size-4" />
-            </div>
+            <ProjectIcon personal size={28} />
             <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
               Concept Graph
             </span>

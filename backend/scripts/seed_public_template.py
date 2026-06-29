@@ -69,11 +69,12 @@ async def from_workspace(src_id: uuid.UUID) -> None:
             raise SystemExit(f"source workspace {src_id} not found")
         await _reset_template(db, owner_id)
         template = await _new_template(db, owner_id)
+        template_id = template.id  # capture before commit expires it + the session closes
         n = await clone_workspace_graph(
-            db, src_workspace_id=src_id, dst_workspace_id=template.id
+            db, src_workspace_id=src_id, dst_workspace_id=template_id
         )
         await db.commit()
-    print(f"template ready: cloned {n} concepts into workspace {template.id} (owner {owner_id})")
+    print(f"template ready: cloned {n} concepts into workspace {template_id} (owner {owner_id})")
     await get_engine().dispose()
 
 
