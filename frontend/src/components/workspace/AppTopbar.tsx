@@ -6,6 +6,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
 import { MembersPanel } from './MembersPanel'
 import { ActivityFeed } from './ActivityFeed'
+import { SignInButton } from '@/components/public/SignInButton'
 
 export function AppTopbar({
   onOpenSearch,
@@ -15,6 +16,7 @@ export function AppTopbar({
   activityUnread,
   onActivitySeen,
   onNavigateConcept,
+  publicMode = false,
 }: {
   onOpenSearch: () => void
   workspaceId: string | undefined
@@ -27,6 +29,9 @@ export function AppTopbar({
   onActivitySeen: () => void
   // Jump to a concept from an activity event.
   onNavigateConcept: (conceptId: string) => void
+  // Public demo: show a Sign-in CTA (collab buttons are already hidden — they key
+  // off workspaceId, which the demo leaves undefined).
+  publicMode?: boolean
 }) {
   const [membersOpen, setMembersOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
@@ -76,6 +81,8 @@ export function AppTopbar({
             Members
           </Button>
         )}
+
+        {publicMode && <SignInButton className="ml-1" />}
       </div>
 
       {workspaceId && (

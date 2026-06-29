@@ -85,6 +85,7 @@ export function ConceptPanel({
   onMutated,
   onAnnotationsChanged,
   onOpenSource,
+  showAnnotations = true,
 }: {
   node: GraphNode
   graph: GraphData
@@ -102,6 +103,9 @@ export function ConceptPanel({
   onAnnotationsChanged: () => void
   // Open a source document's original file/page (the source view).
   onOpenSource: (documentId: string) => void
+  // Whether to show the annotations thread (highlights/flags/comments). Off in the
+  // public demo, where annotations aren't part of the no-auth surface.
+  showAnnotations?: boolean
 }) {
   // Fetched data is tagged with the concept id it belongs to. The view derives
   // both the current-concept data and its loading flag from that tag, so a
@@ -584,16 +588,20 @@ export function ConceptPanel({
             )
           )}
 
-          <Separator />
+          {showAnnotations && (
+            <>
+              <Separator />
 
-          <ConceptAnnotations
-            conceptId={node.id}
-            workspaceId={workspaceId}
-            canFlag={canEdit}
-            canComment={canComment}
-            annotations={annotations}
-            onChanged={onAnnotationsChanged}
-          />
+              <ConceptAnnotations
+                conceptId={node.id}
+                workspaceId={workspaceId}
+                canFlag={canEdit}
+                canComment={canComment}
+                annotations={annotations}
+                onChanged={onAnnotationsChanged}
+              />
+            </>
+          )}
         </div>
       </div>
 

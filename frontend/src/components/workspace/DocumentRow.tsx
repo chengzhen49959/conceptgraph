@@ -230,8 +230,10 @@ export function DocumentRow({
                 <span className="truncate" title={doc.error ?? 'Import failed'}>
                   {doc.error ?? 'Import failed'}
                 </span>
-                {/* Ingest can't resume in place (the original file isn't kept), so
-                    the only recovery is delete + re-upload — spell it out. */}
+                {/* A worker restart no longer lands here — those auto-resume from
+                    S3. A 'failed' doc hit a deterministic error (bad parse, timeout,
+                    or repeated crashes), so re-running the same bytes won't help;
+                    delete + re-upload a fixed file is the recovery — spell it out. */}
                 <span className="font-medium">Delete &amp; re-upload to retry</span>
               </span>
             </span>

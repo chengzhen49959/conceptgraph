@@ -13,9 +13,11 @@ import hashlib
 import logging
 import uuid
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
+from arq import cron
 from arq.connections import RedisSettings
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 
 from app.ai import (
     SYMMETRIC_RELATIONS,
@@ -25,7 +27,7 @@ from app.ai import (
 )
 from app.config import get_settings
 from app.db import _sessionmaker, get_engine
-from app.models import Chunk, Document
+from app.models import Chunk, Document, Workspace
 from app.services.chunk import chunk_text
 from app.services.clustering import recompute_clusters
 from app.services.worker_health import WORKER_HEALTH_INTERVAL
@@ -40,7 +42,7 @@ from app.services.dedup_sweep import sweep_workspace
 from app.services.parse import parse_document
 from app.services.simhash import compute as compute_simhash
 from app.services.simhash import hamming as simhash_hamming
-from app.services.storage import get_object
+from app.services.storage import delete_objects, get_object
 
 logger = logging.getLogger("ingest")
 
@@ -487,33 +489,146 @@ async def dedup_sweep_workspace(
     }
 
 
-async def on_startup(ctx: dict) -> None:
-    """Reset documents stranded in an in-progress stage by a previous worker's death.
+async def sweep_anon_workspaces(ctx: dict) -> dict:
+    """Reap public-demo workspaces idle past the configured TTL (scheduled cron).
 
-    A hard kill (laptop sleep, closed terminal) or a job_timeout-cancel can stop a
-    job without its `except` running, leaving the doc frozen mid-pipeline (e.g.
-    'merging') with no process driving it — an honest dead-end the UI shows as a
-    spinner that never resolves. On a fresh worker start nothing is legitimately
-    mid-flight (single worker; the per-workspace lock serialises the rest), so any
-    non-terminal, non-queued doc is such a corpse: mark it failed so the user sees a
-    clear, re-uploadable error. 'pending' is left alone — that's a job still queued
-    in Redis that this worker is about to run.
+    The demo mints one throwaway workspace per visitor (``owner_id = anon:<token>``);
+    without a reaper they'd accumulate forever. Deleting the workspace row cascades
+    its documents/chunks/concepts/edges/clusters. S3 objects do NOT cascade, so we
+    delete them best-effort afterwards — but ONLY those under the swept workspace's
+    own key prefix: a visitor's seed (cloned) documents share the TEMPLATE's
+    ``s3_key``, and deleting those would break downloads for every other visitor.
+    Bounded per run so one sweep can't stall the worker.
     """
+    s = get_settings()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=s.public_session_ttl_hours)
     sessionmaker = _sessionmaker()
     async with sessionmaker() as session:
-        result = await session.execute(
-            update(Document)
-            .where(Document.status.notin_(["pending", "done", "failed"]))
-            .values(
-                status="failed",
-                error="interrupted (worker restarted)",
-                progress_current=None,
-                progress_total=None,
+        stale_ids = (
+            await session.execute(
+                select(Workspace.id)
+                .where(
+                    Workspace.owner_id.like("anon:%"),
+                    func.coalesce(Workspace.updated_at, Workspace.created_at) < cutoff,
+                )
+                .limit(500)
             )
-        )
+        ).scalars().all()
+        if not stale_ids:
+            return {"swept": 0}
+        s3_keys = (
+            await session.execute(
+                select(Document.s3_key).where(Document.workspace_id.in_(stale_ids))
+            )
+        ).scalars().all()
+        await session.execute(delete(Workspace).where(Workspace.id.in_(stale_ids)))
         await session.commit()
-    if result.rowcount:
-        logger.warning("reset %d interrupted document(s) to failed on startup", result.rowcount)
+
+    # Only the visitor's OWN uploads (keyed by their workspace id); never the shared
+    # template objects the seed clone points at.
+    own_prefixes = tuple(f"{wid}/" for wid in stale_ids)
+    own_keys = [k for k in s3_keys if k.startswith(own_prefixes)]
+    with contextlib.suppress(Exception):
+        await delete_objects(own_keys)
+    logger.info("swept %d idle demo workspace(s)", len(stale_ids))
+    return {"swept": len(stale_ids)}
+
+
+# A document caught mid-pipeline by a worker restart is re-enqueued, not failed
+# (see on_startup). Past this many resumes for the SAME document inside
+# _RESUME_ATTEMPT_TTL it's treated as a poison pill — a file that reliably kills the
+# worker (e.g. an oversized PDF that OOMs every run) — and failed for real, so one
+# bad upload can't trap the worker in a restart→resume→crash loop. Generous:
+# ordinary back-to-back deploys never approach it.
+_MAX_RESUME_ATTEMPTS = 5
+# The per-document resume counter self-expires after this idle gap, so a transient
+# burst of deploys that ultimately succeeds doesn't count against the file for days.
+_RESUME_ATTEMPT_TTL = 2 * 3600
+
+
+async def on_startup(ctx: dict) -> None:
+    """Resume documents stranded mid-pipeline by a previous worker's death.
+
+    A worker restart — a deploy (the common one: the host ships a new container),
+    an OOM, host sleep, or any SIGKILL — stops a job without its `except` running,
+    freezing the doc mid-pipeline (e.g. 'merging') with no process driving it. The
+    old behaviour buried that corpse: mark it failed, make the user delete and
+    re-upload. But the job is recoverable. The pipeline is idempotent per
+    document_id — it clears any prior attempt's chunks on entry (their mentions
+    cascade) and the orphan sweep reaps half-merged concepts — and the source bytes
+    live durably in S3 (ingest never deletes them; that's also the download source).
+    So the honest recovery is to RE-RUN, not to fail: each stranded doc returns to
+    'pending' and is re-enqueued, and the fresh worker re-ingests it from scratch.
+    No manual step, and it covers every restart cause, not just deploys.
+
+    A bounded per-document counter (Redis) is the one guard: a file that reliably
+    crashes the worker would otherwise loop forever, so past _MAX_RESUME_ATTEMPTS it
+    becomes an honest failure. 'pending' (a job still queued in Redis this worker is
+    about to run) and terminal states are left untouched — except 'failed' docs still
+    bearing the OLD burial marker "interrupted (worker restarted)", a one-time
+    retroactive rescue: those are restart casualties this very change reclassifies as
+    resumable (the new code never writes that string, so it can't re-accumulate).
+    'duplicate' must stay excluded or every prior duplicate would re-fail here.
+    """
+    redis = ctx["redis"]
+    sessionmaker = _sessionmaker()
+    async with sessionmaker() as session:
+        stranded = (
+            await session.execute(
+                select(Document.id).where(
+                    or_(
+                        # In-flight when the worker died (parsing…clustering).
+                        Document.status.notin_(["pending", "done", "failed", "duplicate"]),
+                        # Retroactive: docs the old on_startup buried under this exact
+                        # marker were restart casualties, not real failures.
+                        and_(
+                            Document.status == "failed",
+                            Document.error == "interrupted (worker restarted)",
+                        ),
+                    )
+                )
+            )
+        ).scalars().all()
+
+    resumed = 0
+    for doc_id in stranded:
+        key = f"ingest:resume:{doc_id}"
+        attempts = await redis.incr(key)
+        if attempts == 1:
+            # Arm the idle-expiry once; later restarts keep counting against the same
+            # TTL window so a genuine crash loop still trips the cap.
+            await redis.expire(key, _RESUME_ATTEMPT_TTL)
+        async with sessionmaker() as session:
+            if attempts > _MAX_RESUME_ATTEMPTS:
+                await session.execute(
+                    update(Document)
+                    .where(Document.id == doc_id)
+                    .values(
+                        status="failed",
+                        error="repeatedly interrupted — the file may be too large to ingest",
+                        progress_current=None,
+                        progress_total=None,
+                    )
+                )
+                await session.commit()
+                logger.error("document %s exceeded resume cap; failing", doc_id)
+                continue
+            await session.execute(
+                update(Document)
+                .where(Document.id == doc_id)
+                .values(
+                    status="pending",
+                    error=None,
+                    progress_current=None,
+                    progress_total=None,
+                )
+            )
+            await session.commit()
+        await redis.enqueue_job("ingest_document", str(doc_id))
+        resumed += 1
+
+    if resumed:
+        logger.warning("resumed %d interrupted document(s) on startup", resumed)
 
 
 async def on_shutdown(ctx: dict) -> None:
@@ -523,6 +638,9 @@ async def on_shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     functions = [ingest_document, dedup_sweep_workspace]
+    # Reap idle public-demo workspaces hourly (at minute 17 — an arbitrary offset so
+    # it doesn't pile onto top-of-hour load). No-op when no demo sessions exist.
+    cron_jobs = [cron(sweep_anon_workspaces, minute=17)]
     # redis_url must be set for the worker to run; fall back to localhost only so
     # importing this module (e.g. in tests) doesn't raise.
     redis_settings = RedisSettings.from_dsn(

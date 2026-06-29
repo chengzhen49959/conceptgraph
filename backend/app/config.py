@@ -121,6 +121,36 @@ class Settings(BaseSettings):
     # comfortably above real pages, below abuse.
     clip_max_chars: int = 300_000
 
+    # --- Public demo graph (no-auth landing) -----------------------------------
+    # An anonymous, login-free demo at the frontend's "/" so judges/visitors can
+    # experience the product end-to-end (upload → extract → graph → search → ask →
+    # edit) without an account. Each visitor gets their OWN isolated workspace,
+    # owned by a synthetic ``anon:<session-token>`` id and seeded by cloning the
+    # template workspace below — so the graph is prefilled on first open and one
+    # visitor's uploads never leak into another's. Set False to take the demo down
+    # without redeploying the frontend (the public endpoints then 404).
+    public_demo_enabled: bool = True
+    # The workspace whose graph every new demo session is seeded from (a deep copy:
+    # documents, chunks, concepts, edges, clusters, embeddings). Identified by its
+    # owner_id so it can be built once with the normal pipeline (see
+    # scripts/seed_public_template.py) and swapped without code changes. A missing
+    # template just yields an empty (still usable) demo graph.
+    public_template_owner_id: str = "public-template"
+    # Abuse ceilings — the demo runs real OpenAI extraction + RAG on anonymous
+    # input, so every lever that spends tokens is capped. Enforced in routers/public.py
+    # against Redis counters; tune per how much demo spend is acceptable.
+    public_max_docs_per_session: int = 8  # uploads one visitor's graph may hold
+    public_max_file_mb: int = 10  # per-file upload ceiling (also enforced client-side)
+    public_max_sessions_per_ip_day: int = 25  # new demo workspaces one IP may mint/day
+    public_max_docs_per_ip_day: int = 30  # uploads one IP may ingest/day
+    public_max_uploads_global_day: int = 800  # global kill-switch on daily demo ingests
+    public_ask_per_min: int = 6  # RAG questions per session per minute
+    public_ask_per_hour: int = 40  # RAG questions per session per hour
+    public_search_per_min: int = 20  # semantic searches per session per minute
+    # Demo workspaces idle longer than this are swept (worker cron). Keeps the
+    # anonymous-workspace table from growing without bound.
+    public_session_ttl_hours: int = 24
+
     # --- MCP server (external-memory API for AI clients) -----------------------
     # The MCP server is mounted at /mcp and authenticates AI clients via OAuth 2.1
     # with Cognito as the Authorization Server; this backend is the Resource

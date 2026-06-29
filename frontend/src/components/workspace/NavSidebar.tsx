@@ -7,6 +7,7 @@ import {
   EyeOff,
   ListChecks,
   LoaderCircle,
+  Network,
   Plus,
   Search,
   Settings,
@@ -55,6 +56,7 @@ import { GraphControls } from './GraphControls'
 import { SectionLabel } from './SidebarSection'
 import { NavUser } from './NavUser'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { SignInButton } from '@/components/public/SignInButton'
 
 const ACCEPT = '.pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain'
 
@@ -187,6 +189,7 @@ export function NavSidebar({
   onDeleteConcepts,
   settings,
   onChange,
+  publicMode = false,
 }: {
   documents: DocumentOut[]
   graph: GraphData
@@ -222,6 +225,9 @@ export function NavSidebar({
    *  Filters / Display / Forces / Local graph sections rendered beneath them. */
   settings: GraphSettings
   onChange: (patch: GraphSettingsPatch) => void
+  /** Public demo: hide the workspace switcher (no auth to switch/create) and show
+   *  a Sign-in CTA in the footer instead of the account menu. */
+  publicMode?: boolean
 }) {
   const [docsOpen, setDocsOpen] = useState(true)
   const [clustersOpen, setClustersOpen] = useState(true)
@@ -482,11 +488,22 @@ export function NavSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <WorkspaceSwitcher
-          workspaces={workspaces}
-          currentId={currentId}
-          currentName={workspaceName}
-        />
+        {publicMode ? (
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+              <Network className="size-4" />
+            </div>
+            <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+              Concept Graph
+            </span>
+          </div>
+        ) : (
+          <WorkspaceSwitcher
+            workspaces={workspaces}
+            currentId={currentId}
+            currentName={workspaceName}
+          />
+        )}
       </SidebarHeader>
 
       <SidebarContent>
@@ -921,7 +938,16 @@ export function NavSidebar({
             </Popover>
           </SidebarMenuItem>
         </SidebarMenu>
-        <NavUser email={email} />
+        {publicMode ? (
+          <div className="px-2 pb-1 pt-0.5 group-data-[collapsible=icon]:hidden">
+            <p className="mb-1.5 px-1 text-xs text-muted-foreground">
+              Public demo — sign in to save your work.
+            </p>
+            <SignInButton className="w-full" />
+          </div>
+        ) : (
+          <NavUser email={email} />
+        )}
       </SidebarFooter>
 
       <input

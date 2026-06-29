@@ -35,8 +35,57 @@ export async function request<T>(
   return res.json() as Promise<T>
 }
 
-/** Call FastAPI from a Client Component (id token from the browser session). */
+// --- Public demo mode -------------------------------------------------------
+// When a public session is set, every apiClient/askStream call targets the
+// no-auth `/api/public/*` surface with an `X-Public-Session` header instead of
+// the Cognito bearer — flipping the WHOLE component tree to the demo backend from
+// one place, so no component needs a "public" branch. Set once by the public
+// landing app (lib/public-session) before it renders; the dashboard is a separate
+// full-page load that never sets it, so an authed and a public session never
+// share this module global within one page.
+let publicSession: { token: string; reMint: () => Promise<string> } | null = null
+
+/** Switch api calls to the public demo session. `reMint` mints a fresh session
+ *  (used to recover from an expired/swept token on a 401). */
+export function setPublicSession(token: string, reMint: () => Promise<string>) {
+  publicSession = { token, reMint }
+}
+
+export function isPublicMode(): boolean {
+  return publicSession !== null
+}
+
+/** Public-session variant of {@link request}: rewrites `/api/X` → `/api/public/X`,
+ *  swaps the bearer for the session header, and re-mints once on an expired token. */
+async function publicRequest<T>(
+  path: string,
+  init?: RequestInit,
+  retried = false,
+): Promise<T> {
+  const ps = publicSession!
+  const publicPath = path.replace('/api/', '/api/public/')
+  try {
+    return await request<T>(publicPath, undefined, {
+      ...init,
+      headers: { 'X-Public-Session': ps.token, ...(init?.headers ?? {}) },
+    })
+  } catch (e) {
+    // A swept / expired demo session 401s ("invalid or expired public session").
+    // Mint a fresh one once and retry, so a tab left open overnight recovers
+    // instead of erroring on every action.
+    const msg = (e as Error).message
+    if (!retried && (/public session/i.test(msg) || msg.includes('401'))) {
+      await ps.reMint()
+      return publicRequest<T>(path, init, true)
+    }
+    throw e
+  }
+}
+
+/** Call FastAPI from a Client Component. Uses the public demo session when one is
+ *  set, else the Cognito id token from the browser session. */
 export async function apiClient<T>(path: string, init?: RequestInit): Promise<T> {
+  if (publicSession) return publicRequest<T>(path, init)
   const session = await fetchAuthSession()
   const token = session.tokens?.idToken?.toString()
   return request<T>(path, token, init)
@@ -311,12 +360,26 @@ export async function askStream(
   handlers: AskHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch('/api/ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ q, workspace_id: workspaceId }),
-    signal,
-  })
+  // Public demo: stream straight from the backend's no-auth endpoint with the
+  // session header (the same-origin BFF proxy below authenticates via the Cognito
+  // cookie, which a demo visitor doesn't have). Otherwise go through the proxy so
+  // the bearer is attached server-side and never exposed to client JS.
+  const res = publicSession
+    ? await fetch(`${API_BASE}/api/public/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Public-Session': publicSession.token,
+        },
+        body: JSON.stringify({ q }),
+        signal,
+      })
+    : await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q, workspace_id: workspaceId }),
+        signal,
+      })
   if (!res.ok || !res.body) {
     const raw = await res.text()
     let message = raw

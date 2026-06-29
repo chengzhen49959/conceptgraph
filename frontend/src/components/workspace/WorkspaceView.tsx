@@ -44,6 +44,7 @@ export function WorkspaceView({
   workspaces,
   workspaceId,
   workspaceName,
+  public: isPublic = false,
 }: {
   email: string | null
   workspaces: WorkspaceCard[]
@@ -51,6 +52,12 @@ export function WorkspaceView({
   // defaults to it), which is the fallback when the workspace list can't load.
   workspaceId: string | undefined
   workspaceName: string
+  // Public demo mode (the login-free "/" landing). The visitor owns an isolated
+  // seeded workspace, so they may upload + edit, but account-scoped collaboration
+  // chrome (members, activity, chat, annotations, workspace switching) is hidden
+  // and the api client targets the no-auth /api/public/* surface (see lib/api).
+  // Named `public:` because `public` is a reserved word as a binding identifier.
+  public?: boolean
 }) {
   const [docs, setDocs] = useState<DocumentOut[]>([])
   const [graph, setGraph] = useState<GraphData>(EMPTY)
@@ -439,14 +446,18 @@ export function WorkspaceView({
     () => workspaces.find((w) => w.id === workspaceId),
     [workspaces, workspaceId],
   )
-  const canManageMembers = current?.role === 'owner' && current?.type === 'shared'
-  // Owner and editor may edit the graph; commenter/viewer cannot.
-  const canEdit = current?.role === 'owner' || current?.role === 'editor'
-  // Owner / editor / commenter may comment; a viewer is read-only.
+  const canManageMembers =
+    !isPublic && current?.role === 'owner' && current?.type === 'shared'
+  // Owner and editor may edit the graph; commenter/viewer cannot. The demo visitor
+  // owns their isolated workspace, so they get full edit access.
+  const canEdit = isPublic || current?.role === 'owner' || current?.role === 'editor'
+  // Owner / editor / commenter may comment; a viewer is read-only. Commenting is a
+  // collaboration feature, off in the public demo.
   const canComment =
-    current?.role === 'owner' ||
-    current?.role === 'editor' ||
-    current?.role === 'commenter'
+    !isPublic &&
+    (current?.role === 'owner' ||
+      current?.role === 'editor' ||
+      current?.role === 'commenter')
 
   // Open highlight/flag markers per concept, for the canvas overlay.
   const annotationsByConceptId = useMemo(() => {
@@ -508,8 +519,10 @@ export function WorkspaceView({
       highlightConceptIds={askConceptIds.size ? askConceptIds : undefined}
       annotationsByConceptId={annotationsByConceptId}
       canEdit={canEdit}
-      onToggleHighlight={(id) => handleToggleAnnotation(id, 'highlight')}
-      onToggleFlag={(id) => handleToggleAnnotation(id, 'flag')}
+      // Highlight/flag write annotations (owner-scoped, off in the demo) — omit the
+      // handlers so the canvas hides those menu items; delete stays (canEdit).
+      onToggleHighlight={isPublic ? undefined : (id) => handleToggleAnnotation(id, 'highlight')}
+      onToggleFlag={isPublic ? undefined : (id) => handleToggleAnnotation(id, 'flag')}
       onDeleteConcept={handleDeleteConcept}
     />
   )
@@ -540,6 +553,7 @@ export function WorkspaceView({
         onDeleteConcepts={handleDeleteConcepts}
         settings={settings}
         onChange={patchSettings}
+        publicMode={isPublic}
       />
 
       <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -551,6 +565,7 @@ export function WorkspaceView({
           activityUnread={activityUnread}
           onActivitySeen={clearActivityUnread}
           onNavigateConcept={selectConcept}
+          publicMode={isPublic}
         />
 
         {workerOffline && (
@@ -609,6 +624,7 @@ export function WorkspaceView({
                 onMutated={refreshGraph}
                 onAnnotationsChanged={refreshAnnotations}
                 onOpenSource={openSource}
+                showAnnotations={!isPublic}
               />
             </aside>
           )}
@@ -625,7 +641,11 @@ export function WorkspaceView({
           )}
 
           {/* Floating toggle for the research-agent chat dock, bottom-left so it
-              clears the bottom-right zoom controls. */}
+              clears the bottom-right zoom controls. Hidden in the public demo: the
+              agent uses owner-scoped conversations (RAG Q&A stays available via the
+              search palette's Ask mode). */}
+          {!isPublic && (
+            <>
           <button
             onClick={toggleChat}
             className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-sm font-medium shadow-lg hover:bg-muted"
@@ -659,6 +679,8 @@ export function WorkspaceView({
             onCited={setAskConceptIds}
             onSelectConcept={selectConcept}
           />
+            </>
+          )}
         </div>
 
         <StatusBar graph={graph} documents={docs} workerOffline={workerOffline} />
